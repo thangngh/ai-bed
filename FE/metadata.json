@@ -1,0 +1,6 @@
+{
+  "name": "Bedtime Story Companion",
+  "description": "Trợ lý tạo câu chuyện cá nhân hóa trước giờ ngủ cho bé 3-6 tuổi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

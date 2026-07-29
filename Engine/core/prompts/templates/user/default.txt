@@ -1,0 +1,12 @@
+Child information:
+- Name: {childName}
+- Age: {age}
+- Gender: {gender}
+- Theme: {theme}
+- Lesson goal: {goal}
+- Mood: {mood}
+- Favorite character: {favoriteCharacter}
+- Memory context: {memories}
+
+Generate a story following the structure defined in the system prompt.
+The story itself MUST be in Vietnamese, thuần Việt style.
