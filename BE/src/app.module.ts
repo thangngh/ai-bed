@@ -12,6 +12,7 @@ import { ChildModule } from './modules/child/child.module';
 import { StoryModule } from './modules/story/story.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { MemoryModule } from './modules/memory/memory.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { EngineGatewayModule } from './modules/engine-gateway/engine-gateway.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middleware';
@@ -24,6 +25,7 @@ import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middlewa
     StoryModule,
     FeedbackModule,
     MemoryModule,
+    AnalyticsModule,
     EngineGatewayModule,
     TypeOrmModule.forRootAsync({
       name: 'core',
