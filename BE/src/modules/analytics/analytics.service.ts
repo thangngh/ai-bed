@@ -77,9 +77,15 @@ export class AnalyticsService {
       .map(([theme, count]) => ({ theme, count }))
       .sort((a, b) => b.count - a.count);
 
-    const stories_per_day = Array.from(dayMap.entries())
-      .map(([day, count]) => ({ day, count }))
-      .sort((a, b) => a.day.localeCompare(b.day));
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    const stories_per_day: { day: string; count: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dayKey = d.toISOString().slice(0, 10);
+      stories_per_day.push({ day: DAY_NAMES[d.getDay()], count: dayMap.get(dayKey) || 0 });
+    }
 
     const avg_word_count = wordCountN > 0 ? wordCountSum / wordCountN : 0;
 

@@ -75,11 +75,13 @@ describe('AnalyticsService', () => {
       expect(stats.total_stories).toBe(0);
       expect(stats.unique_themes).toBe(0);
       expect(stats.top_themes).toEqual([]);
-      expect(stats.stories_per_day).toHaveLength(0);
+      expect(stats.stories_per_day).toHaveLength(7);
+      expect(stats.stories_per_day.every(d => d.count === 0)).toBe(true);
       expect(stats.avg_word_count).toBe(0);
     });
 
     it('with seeded data', async () => {
+      const now = new Date();
       await localDs.manager.save(Story, {
         storyId: 'story-1',
         tenantId: 't1',
@@ -87,7 +89,7 @@ describe('AnalyticsService', () => {
         theme: 'khủng long',
         wordCount: 200,
         isFallback: 0,
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: now.toISOString(),
         title: 'Story 1',
         content: 'Content 1',
         safetyStatus: 'PENDING',
@@ -96,10 +98,10 @@ describe('AnalyticsService', () => {
         storyId: 'story-2',
         tenantId: 't1',
         childId: 'c1',
-        theme: 'khủng long',
+        theme: 'công chúa',
         wordCount: 350,
         isFallback: 0,
-        createdAt: '2024-01-02T00:00:00Z',
+        createdAt: now.toISOString(),
         title: 'Story 2',
         content: 'Content 2',
         safetyStatus: 'PENDING',
@@ -108,10 +110,10 @@ describe('AnalyticsService', () => {
         storyId: 'story-3',
         tenantId: 't1',
         childId: 'c1',
-        theme: 'công chúa',
+        theme: 'khủng long',
         wordCount: 150,
         isFallback: 0,
-        createdAt: '2024-01-03T00:00:00Z',
+        createdAt: now.toISOString(),
         title: 'Story 3',
         content: 'Content 3',
         safetyStatus: 'PENDING',
@@ -123,7 +125,7 @@ describe('AnalyticsService', () => {
       expect(stats.top_themes[0].theme).toBe('khủng long');
       expect(stats.top_themes[0].count).toBe(2);
       expect(stats.avg_word_count).toBeGreaterThan(200);
-      expect(stats.stories_per_day).toHaveLength(3);
+      expect(stats.stories_per_day).toHaveLength(7);
     });
   });
 
