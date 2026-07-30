@@ -11,8 +11,8 @@ Evaluate:
 6. Moral clarity — is lesson explicit enough for parent discussion?
 
 Return JSON:
-{
+{{
   "safety_verdict": "APPROVED" | "REJECTED" | "FLAGGED",
-  "issues": [{ "type": "safety" | "language" | "structure" | "depth" | "quality", "severity": "low" | "medium" | "high", "detail": "..." }],
+  "issues": [{{ "type": "safety" | "language" | "structure" | "depth" | "quality", "severity": "low" | "medium" | "high", "detail": "..." }}],
   "quality_score": 1-5
-}
+}}

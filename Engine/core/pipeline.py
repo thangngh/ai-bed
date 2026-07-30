@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from .validator import OutputValidator
 from .llm.router import LLMRouter
+from .prompts.registry import PromptRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class StoryPipeline:
     def __init__(self, router: LLMRouter):
         self.router = router
         self.validator = OutputValidator()
+        self.registry = PromptRegistry()
         self.llm_calls = 0
 
     def _count_call(self):
@@ -54,9 +56,9 @@ class StoryPipeline:
 
             outline = json.loads(planner_raw)
 
-            writer_prompt = self._build_writer_prompt(prompts, outline)
+            writer_prompt = self._build_writer_prompt(outline)
             writer_raw = await self._call_retry(
-                {"system": prompts["system"], "user": writer_prompt}, "writer", max_retries=2,
+                {"system": "", "user": writer_prompt}, "writer", max_retries=2,
                 validator=lambda d: self._validate_writer_full(d)
             )
             if not writer_raw:
@@ -68,7 +70,7 @@ class StoryPipeline:
             if review.get("safety_verdict") == "REJECTED":
                 logger.warning("Story REJECTED, retrying writer...")
                 writer_raw = await self._call_retry(
-                    {"system": prompts["system"], "user": writer_prompt}, "writer", max_retries=1,
+                    {"system": "", "user": writer_prompt}, "writer", max_retries=1,
                     validator=lambda d: self.validator.validate_writer(d)
                 )
                 if writer_raw:
@@ -106,8 +108,9 @@ class StoryPipeline:
                 logger.warning(f"{stage} attempt {attempt} error: {e}")
         return None
 
-    def _build_writer_prompt(self, prompts: dict, outline: dict) -> str:
-        return f"System: {prompts.get('system', '')}\n\nOutline: {json.dumps(outline, ensure_ascii=False)}\n\n{prompts.get('user', '')}"
+    def _build_writer_prompt(self, outline: dict) -> str:
+        template = self.registry.load_writer()
+        return template.format(outline=json.dumps(outline, ensure_ascii=False))
 
     def _validate_writer_full(self, data: dict):
         """Validate writer output: schema + section completeness."""
@@ -122,11 +125,8 @@ class StoryPipeline:
         return schema_result
 
     async def _review_story(self, story: dict) -> dict:
-        review_prompt = (
-            f"Review this children's story for safety and quality:\n"
-            f"{json.dumps(story, ensure_ascii=False)}\n\n"
-            f"Return verdict as JSON: safety_verdict (APPROVED/REJECTED/FLAGGED), "
-            f"issues list, quality_score (1-5)"
+        review_prompt = self.registry.load_reviewer().format(
+            story=json.dumps(story, ensure_ascii=False)
         )
         raw = await self._call_llm(review_prompt, "reviewer")
         try:

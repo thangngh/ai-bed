@@ -17,6 +17,6 @@ Each interaction point must:
 - Reference the child's name
 - Be written conversationally
 
-Output JSON: { "title": "...", "content": [{ "type": "...", "text": "...", "prompt": "..."?, "order": 0 }], "word_count": N }
+Output JSON: {{ "title": "...", "content": [{{ "type": "...", "text": "...", "prompt": "..."?, "order": 0 }}], "word_count": N }}
 
 All content MUST be in Vietnamese (thuần Việt). No English words except proper names.
