@@ -65,7 +65,7 @@ export class StoryService {
     await this.storyRepo.save(story);
 
     if (engineResult.memories?.length) {
-      await this.memoryService.bulkCreate(tenantId, child.childId, engineResult.memories, story.storyId);
+      await this.memoryService.extractFromStory(child.childId, tenantId, engineResult.memories, story.storyId);
     }
 
     return StoryResponse.from(story, engineResult);

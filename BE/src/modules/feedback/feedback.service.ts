@@ -30,11 +30,16 @@ export class FeedbackService {
     feedback.note = dto.note || null;
     await this.repo.save(feedback);
 
-    // Update memory based on feedback
-    if (dto.rating && dto.rating >= 4) {
-      await this.memoryService.bulkCreate(tenantId, dto.child_name || 'unknown', [
-        { type: 'feedback', key: 'liked_story', value: `Rating: ${dto.rating}`, confidence: 0.7 },
-      ], dto.story_id);
+    if (dto.rating) {
+      const action = dto.rating >= 4 ? 'boost' : dto.rating <= 2 ? 'reduce' : null;
+      if (action && dto.child_name) {
+        await this.memoryService.reinforce(dto.child_name || 'unknown', tenantId, {
+          type: 'feedback',
+          key: 'story_rating',
+          value: `Rating: ${dto.rating}`,
+          action,
+        });
+      }
     }
 
     return { feedback_id: feedback.feedbackId };
