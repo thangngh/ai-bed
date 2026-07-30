@@ -54,10 +54,45 @@ export interface ChildProfile {
 }
 
 export interface MemoryContext {
-  interests: { type: string; key: string; value: string; confidence: number }[];
-  preferences: { type: string; key: string; value: string; confidence: number }[];
-  recentThemes: { type: string; key: string; value: string; confidence: number }[];
-  behaviors: { type: string; key: string; value: string; confidence: number }[];
-}
+   interests: { type: string; key: string; value: string; confidence: number }[];
+   preferences: { type: string; key: string; value: string; confidence: number }[];
+   recentThemes: { type: string; key: string; value: string; confidence: number }[];
+   behaviors: { type: string; key: string; value: string; confidence: number }[];
+ }
 
-export type AppScreen = 'home' | 'form' | 'loading' | 'story' | 'feedback' | 'error' | 'profile';
+ export interface StoryStats {
+   total_stories: number;
+   unique_themes: number;
+   top_themes: { theme: string; count: number }[];
+   stories_per_day: { day: string; count: number }[];
+   avg_word_count: number;
+   avg_interaction_count: number;
+ }
+
+ export interface FeedbackStats {
+   total_feedback: number;
+   avg_rating: number;
+   listened_complete_rate: number;
+   wants_more_rate: number;
+   rating_distribution: { rating: number; count: number }[];
+ }
+
+ export interface MemoryStats {
+   top_interests: { value: string; confidence: number }[];
+   top_characters: string[];
+   common_goals: { goal: string; count: number }[];
+ }
+
+ export interface OverviewStats {
+   children: {
+     childId: string;
+     childName: string;
+     total_stories: number;
+     avg_rating: number | null;
+     last_active: string | null;
+   }[];
+   total_stories: number;
+   total_children: number;
+ }
+
+export type AppScreen = 'home' | 'form' | 'loading' | 'story' | 'feedback' | 'error' | 'profile' | 'analytics';
