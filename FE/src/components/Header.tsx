@@ -1,5 +1,5 @@
 import React from 'react';
-import { Moon, Sun, BookOpen, Sparkles, Heart } from 'lucide-react';
+import { Moon, Sun, BookOpen, Sparkles, Heart, BarChart3 } from 'lucide-react';
 import { AppScreen, ChildProfile } from '../types';
 import { getAvatarColor, getInitial } from '../utils/avatar';
 
@@ -101,6 +101,21 @@ export const Header: React.FC<HeaderProps> = ({
                 {savedStoriesCount}
               </span>
             )}
+          </button>
+
+          {/* Analytics Button */}
+          <button
+            id="btn-header-analytics"
+            onClick={() => setScreen('analytics')}
+            className={`p-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all ${
+              isNightMode
+                ? 'bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200'
+                : 'bg-amber-100/80 hover:bg-amber-200/60 border border-amber-200 text-amber-900'
+            }`}
+            title="Phân tích"
+          >
+            <BarChart3 className="w-4 h-4 text-indigo-500" />
+            <span className="hidden sm:inline">Phân tích</span>
           </button>
 
           {/* Night Mode Toggle */}

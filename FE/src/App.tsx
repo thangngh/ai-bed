@@ -9,6 +9,7 @@ import { SavedStoriesModal } from './components/SavedStoriesModal';
 import { ProfileManager } from './components/ProfileManager';
 import { ErrorScreen } from './components/ErrorScreen';
 import { ChildSelector } from './components/ChildSelector';
+import { AnalyticsScreen } from './components/AnalyticsScreen';
 import { AppScreen, BedtimeStory, FeedbackData, StoryFormInput, ChildProfile } from './types';
 import { SAMPLE_STORIES } from './data/sampleStories';
 import { generateBedtimeStory, mapSectionsToSegments } from './utils/storyGenerator';
@@ -328,12 +329,20 @@ export default function App() {
             errorType={lastErrorType}
           />
         )}
-      {currentScreen === 'profile' && (
+        {currentScreen === 'profile' && (
           <ProfileManager
             children={children}
             activeChild={activeChild}
             onSelectChild={handleSelectChild}
             onUpdate={setChildren}
+            onBack={() => setCurrentScreen('home')}
+            isNightMode={isNightMode}
+          />
+        )}
+        {currentScreen === 'analytics' && (
+          <AnalyticsScreen
+            children={children}
+            activeChild={activeChild}
             onBack={() => setCurrentScreen('home')}
             isNightMode={isNightMode}
           />
