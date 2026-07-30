@@ -77,6 +77,8 @@ class PromptRegistry:
         defaults = {"gender": "unspecified", "favoriteCharacter": ""}
         for k, v in defaults.items():
             data.setdefault(k, v)
+        memories_raw = data.get("memories", [])
+        data["memoryContext"] = self.build_memory_context(memories_raw)
         user_prompt = user_template.format(**data)
 
         return {

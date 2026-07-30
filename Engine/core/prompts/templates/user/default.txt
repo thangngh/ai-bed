@@ -6,7 +6,8 @@ Child information:
 - Lesson goal: {goal}
 - Mood: {mood}
 - Favorite character: {favoriteCharacter}
-- Memory context: {memories}
+Memory context:
+{memoryContext}
 
 Generate a story following the structure defined in the system prompt.
 The story itself MUST be in Vietnamese, thuần Việt style.

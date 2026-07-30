@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from core.prompts.registry import PromptRegistry
 
@@ -69,3 +71,15 @@ class TestPromptRegistry:
         json_str = '[{"type": "interest", "value": "rồng", "confidence": 0.8}]'
         result = registry.build_memory_context(json_str)
         assert "rồng" in result
+
+    def test_assembly_includes_memory_context(self):
+        registry = PromptRegistry()
+        prompts = registry.assemble(age=4, data={
+            "childName": "An", "age": "4", "theme": "rồng",
+            "goal": "", "mood": "vui vẻ",
+            "memories": json.dumps([{"type": "interest", "value": "khủng long", "confidence": 0.9}]),
+            "gender": "boy", "favoriteCharacter": "Khủng long Rex",
+        })
+        assert "khủng long" in prompts["user"]
+        assert "[{" not in prompts["user"]
+        assert '"type"' not in prompts["user"]
