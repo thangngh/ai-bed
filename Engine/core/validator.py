@@ -5,10 +5,21 @@ from typing import Any
 BLOCKLIST_WORDS = [
     "sex", "porn", "violence", "blood", "kill", "death",
     "weapon", "gun", "drug", "suicide", "demon", "devil",
+    "máu", "chết", "súng", "dao", "đánh nhau",
+    "hút thuốc", "rượu", "ma túy", "sát hại", "bạo lực",
+    "cấm", "kỳ thị", "phân biệt", "đả kích", "thù hận",
 ]
 
 REQUIRED_SECTION_TYPES = {"opening", "context", "conflict", "resolution"}
 OPTIONAL_SECTION_TYPES = {"interaction_1", "interaction_2", "interaction_3", "interaction", "moral"}
+
+ENGLISH_LEAK_BLOCKLIST = [
+    "the", "and", "but", "because", "very", "really", "also",
+    "story", "character", "friend", "happy", "sad", "love",
+    "big", "small", "little", "good", "bad", "nice", "beautiful",
+    "start", "end", "once", "upon", "time", "they", "them",
+    "their", "where", "there", "here", "with", "without",
+]
 
 
 @dataclass
@@ -78,6 +89,26 @@ class OutputValidator:
     def has_blocklist_word(self, text: str) -> bool:
         text_lower = text.lower()
         return any(word in text_lower for word in BLOCKLIST_WORDS)
+
+    def check_vietnamese_purity(self, text: str) -> ValidationResult:
+        errors = []
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        found = set()
+        for w in words:
+            if w in ENGLISH_LEAK_BLOCKLIST:
+                found.add(w)
+        if found:
+            errors.append(f"Có thể có từ tiếng Anh: {', '.join(sorted(found)[:10])}")
+        return ValidationResult(valid=len(errors) == 0, errors=errors)
+
+    def check_section_depth(self, sections: list[dict]) -> ValidationResult:
+        errors = []
+        for s in sections:
+            text = s.get("text", "")
+            paragraphs = [p for p in text.split("\n\n") if p.strip()]
+            if s.get("type") in REQUIRED_SECTION_TYPES and len(paragraphs) < 2:
+                errors.append(f"Section '{s.get('type')}' has {len(paragraphs)} paragraph(s), minimum 2")
+        return ValidationResult(valid=len(errors) == 0, errors=errors)
 
     def _auto_fix(self, data: dict) -> dict:
         fixed = dict(data)

@@ -113,7 +113,6 @@ class StoryPipeline:
         return template.format(outline=json.dumps(outline, ensure_ascii=False))
 
     def _validate_writer_full(self, data: dict):
-        """Validate writer output: schema + section completeness."""
         schema_result = self.validator.validate_writer(data)
         if not schema_result.valid:
             return schema_result
@@ -122,6 +121,14 @@ class StoryPipeline:
         if not sections_result.valid:
             from .validator import ValidationResult
             return ValidationResult(valid=False, errors=sections_result.errors)
+        depth_result = self.validator.check_section_depth(content)
+        if not depth_result.valid:
+            from .validator import ValidationResult
+            return ValidationResult(valid=False, errors=depth_result.errors)
+        full_text = str(data)
+        purity_result = self.validator.check_vietnamese_purity(full_text)
+        if not purity_result.valid:
+            logger.warning(f"Vietnamese purity: {purity_result.errors}")
         return schema_result
 
     async def _review_story(self, story: dict) -> dict:

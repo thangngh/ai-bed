@@ -20,7 +20,7 @@ class TestStoryPipeline:
     async def test_happy_path(self):
         router = MockRouter({
             "planner": '{"title": "Test", "story_structure": {"opening": "...", "sections": [{"order": 0, "type": "opening", "description": "..."}, {"order": 1, "type": "context", "description": "..."}], "moral": "good", "key_characters": ["An"]}}',
-            "writer": '{"title": "Test", "content": [{"type": "opening", "text": "Xin chào", "order": 0}, {"type": "context", "text": "Ngày xưa", "order": 1}, {"type": "conflict", "text": "Vấn đề", "order": 2}, {"type": "interaction", "text": "Hỏi", "prompt": "Con nghĩ?", "order": 3}, {"type": "resolution", "text": "Hết", "order": 4}], "word_count": 150}',
+            "writer": '{"title": "Test", "content": [{"type": "opening", "text": "Xin chào bạn nhỏ\\n\\nHôm nay chúng ta có một câu chuyện", "order": 0}, {"type": "context", "text": "Ngày xưa có một cô bé\\n\\nCô bé sống trong ngôi làng nhỏ", "order": 1}, {"type": "conflict", "text": "Một ngày nọ biến cố xảy ra\\n\\nCô bé phải đối mặt với thử thách", "order": 2}, {"type": "interaction", "text": "Hỏi", "prompt": "Con nghĩ?", "order": 3}, {"type": "resolution", "text": "Cuối cùng mọi chuyện ổn thỏa\\n\\nCô bé học được bài học quý giá", "order": 4}], "word_count": 150}',
             "reviewer": '{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}',
         })
         pipeline = StoryPipeline(router)
