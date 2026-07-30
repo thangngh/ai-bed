@@ -53,4 +53,11 @@ export interface ChildProfile {
   createdAt?: string;
 }
 
+export interface MemoryContext {
+  interests: { type: string; key: string; value: string; confidence: number }[];
+  preferences: { type: string; key: string; value: string; confidence: number }[];
+  recentThemes: { type: string; key: string; value: string; confidence: number }[];
+  behaviors: { type: string; key: string; value: string; confidence: number }[];
+}
+
 export type AppScreen = 'home' | 'form' | 'loading' | 'story' | 'feedback' | 'error' | 'profile';

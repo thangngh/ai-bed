@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   User,
@@ -11,8 +11,9 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { AgeGroup, GenderOption, StoryFormInput, ChildProfile } from '../types';
+import { AgeGroup, GenderOption, StoryFormInput, ChildProfile, MemoryContext } from '../types';
 import { TOPIC_SUGGESTIONS, LESSON_SUGGESTIONS, MOOD_SUGGESTIONS } from '../data/sampleStories';
+import { memoryClient } from '../utils/memoryClient';
 
 interface FormScreenProps {
   onSubmit: (data: StoryFormInput) => void;
@@ -41,6 +42,18 @@ export const FormScreen: React.FC<FormScreenProps> = ({
   const [favoriteCharacter, setFavoriteCharacter] = useState(activeChild?.preferredCharacters || '');
 
   const [errors, setErrors] = useState<{ childName?: string }>({});
+
+  const [memoryContext, setMemoryContext] = useState<MemoryContext | null>(null);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!activeChild?.childId) return;
+    setMemoryLoading(true);
+    memoryClient.getContext(activeChild.childId)
+      .then(setMemoryContext)
+      .catch(() => setMemoryContext(null))
+      .finally(() => setMemoryLoading(false));
+  }, [activeChild?.childId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,6 +104,27 @@ export const FormScreen: React.FC<FormScreenProps> = ({
           Chỉ cần điền vài thông tin nhỏ, chúng tôi sẽ dệt nên một câu chuyện ấm áp dành riêng cho bé tối nay.
         </p>
       </div>
+
+      {/* Memory context badge */}
+      {memoryLoading && (
+        <div className="h-5 bg-gray-200 dark:bg-slate-700 rounded animate-pulse mb-4" />
+      )}
+      {!memoryLoading && memoryContext && (() => {
+        const parts: string[] = [];
+        if (memoryContext.interests.length > 0) {
+          parts.push(`thích: ${memoryContext.interests.map(i => i.value).slice(0, 3).join(', ')}`);
+        }
+        if (memoryContext.recentThemes.length > 0) {
+          const last = memoryContext.recentThemes[memoryContext.recentThemes.length - 1];
+          parts.push(`lần trước: truyện về ${last.value}`);
+        }
+        if (parts.length === 0) return null;
+        return (
+          <div className={`text-xs p-2 rounded-lg mb-4 ${isNightMode ? 'bg-indigo-900/40 text-indigo-200' : 'bg-indigo-50 text-indigo-700'}`}>
+            🧠 Bé {activeChild?.childName} {parts.join(' · ')}
+          </div>
+        );
+      })()}
 
       {/* Form Container */}
       <form onSubmit={handleSubmit} className="space-y-6">
