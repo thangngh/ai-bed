@@ -47,8 +47,10 @@ class StoryPipeline:
 
     async def run(self, prompts: dict[str, str]) -> PipelineResult:
         try:
+            planner_prompt = self.registry.load_planner()
             planner_raw = await self._call_retry(
-                prompts, "planner", max_retries=2,
+                {"system": planner_prompt, "developer": "", "user": prompts.get("user", "")},
+                "planner", max_retries=2,
                 validator=lambda d: self.validator.validate_planner(d)
             )
             if not planner_raw:
