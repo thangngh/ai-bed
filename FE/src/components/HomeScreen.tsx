@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sparkles, Moon, Heart, Star, BookOpen, ArrowRight, ShieldCheck, Smile } from 'lucide-react';
 import { BedtimeStory, ChildProfile } from '../types';
+import { MemoryContext } from '../types';
+import { memoryClient } from '../utils/memoryClient';
 
 interface HomeScreenProps {
   onStartNewStory: () => void;
@@ -17,6 +19,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   isNightMode,
   activeChild,
 }) => {
+  const [memoryContext, setMemoryContext] = useState<MemoryContext | null>(null);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!activeChild?.childId) return;
+    setMemoryLoading(true);
+    memoryClient.getContext(activeChild.childId)
+      .then(setMemoryContext)
+      .catch(() => setMemoryContext(null))
+      .finally(() => setMemoryLoading(false));
+  }, [activeChild?.childId]);
+
   const filteredStories = activeChild
     ? presetStories.filter(s => s.childAge === activeChild.age)
     : presetStories;
@@ -85,6 +99,45 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Memory Suggestions */}
+      {memoryLoading && (
+        <div className="space-y-2">
+          <div className="h-4 w-32 bg-gray-200 dark:bg-slate-700 rounded animate-pulse" />
+          <div className="flex gap-3">
+            <div className="h-16 w-32 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+            <div className="h-16 w-32 bg-gray-200 dark:bg-slate-700 rounded-xl animate-pulse" />
+          </div>
+        </div>
+      )}
+      {!memoryLoading && memoryContext && activeChild && (
+        <div className="space-y-3">
+          <h3 className={`text-sm font-semibold ${isNightMode ? 'text-slate-300' : 'text-amber-800'}`}>
+            Gợi ý cho bé
+          </h3>
+          <div className="flex flex-wrap gap-3">
+            {(() => {
+              const suggestions = [
+                ...(memoryContext.interests || []).map(i => ({ label: i.value, theme: i.value })),
+                ...(memoryContext.recentThemes || []).slice(-2).map(t => ({ label: t.value, theme: t.value })),
+              ].slice(0, 4);
+              return suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => onStartNewStory()}
+                  className={`px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                    isNightMode
+                      ? 'bg-indigo-900/50 hover:bg-indigo-800/60 text-indigo-200 border border-indigo-700/50'
+                      : 'bg-amber-100/80 hover:bg-amber-200/80 text-amber-800 border border-amber-200'
+                  }`}
+                >
+                  🎯 {s.label}
+                </button>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Feature Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
