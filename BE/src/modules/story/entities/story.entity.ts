@@ -28,10 +28,10 @@ export class Story {
   theme!: string;
 
   @Column({ name: 'goal', type: 'text', nullable: true })
-  goal?: string;
+  goal?: string | null;
 
   @Column({ name: 'mood', type: 'text', nullable: true })
-  mood?: string;
+  mood?: string | null;
 
   @Column({ name: 'language', type: 'text', default: 'vi' })
   language!: string;

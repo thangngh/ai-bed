@@ -15,16 +15,16 @@ export class ChildProfile {
   age!: number;
 
   @Column({ name: 'interests', type: 'text', nullable: true })
-  interests?: string;
+  interests?: string | null;
 
   @Column({ name: 'preferred_characters', type: 'text', nullable: true })
-  preferredCharacters?: string;
+  preferredCharacters?: string | null;
 
   @Column({ name: 'bedtime_goal', type: 'text', nullable: true })
-  bedtimeGoal?: string;
+  bedtimeGoal?: string | null;
 
   @Column({ name: 'gender', type: 'text', nullable: true })
-  gender?: string;
+  gender?: string | null;
 
   @Column({ name: 'language', type: 'text', default: 'vi' })
   language!: string;
