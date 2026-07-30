@@ -1,0 +1,18 @@
+Review this children's story for safety and quality:
+
+{story}
+
+Evaluate:
+1. Safety — any violence, adult themes, inappropriate content?
+2. Vietnamese language purity — any English words (except proper names)?
+3. Story structure — are all 7 arc steps present?
+4. Section depth — does each section have >1 paragraph?
+5. Interaction quality — natural-sounding, age-appropriate?
+6. Moral clarity — is lesson explicit enough for parent discussion?
+
+Return JSON:
+{
+  "safety_verdict": "APPROVED" | "REJECTED" | "FLAGGED",
+  "issues": [{ "type": "safety" | "language" | "structure" | "depth" | "quality", "severity": "low" | "medium" | "high", "detail": "..." }],
+  "quality_score": 1-5
+}

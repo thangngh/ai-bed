@@ -72,6 +72,25 @@ class TestPromptRegistry:
         result = registry.build_memory_context(json_str)
         assert "rồng" in result
 
+    def test_load_planner(self):
+        registry = PromptRegistry()
+        prompt = registry.load_planner()
+        assert "planner" in prompt.lower()
+        assert len(prompt) > 50
+
+    def test_load_writer(self):
+        registry = PromptRegistry()
+        prompt = registry.load_writer()
+        assert "writer" in prompt.lower() or "story" in prompt.lower()
+        assert "outline" in prompt
+        assert len(prompt) > 50
+
+    def test_load_reviewer(self):
+        registry = PromptRegistry()
+        prompt = registry.load_reviewer()
+        assert "review" in prompt.lower()
+        assert "safety_verdict" in prompt
+
     def test_assembly_includes_memory_context(self):
         registry = PromptRegistry()
         prompts = registry.assemble(age=4, data={

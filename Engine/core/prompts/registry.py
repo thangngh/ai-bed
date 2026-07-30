@@ -29,6 +29,18 @@ class PromptRegistry:
         path = self.templates_dir / "user" / "default.txt"
         return path.read_text(encoding="utf-8")
 
+    def load_planner(self) -> str:
+        path = self.templates_dir / "planner" / "default.txt"
+        return path.read_text(encoding="utf-8")
+
+    def load_writer(self) -> str:
+        path = self.templates_dir / "writer" / "default.txt"
+        return path.read_text(encoding="utf-8")
+
+    def load_reviewer(self) -> str:
+        path = self.templates_dir / "reviewer" / "default.txt"
+        return path.read_text(encoding="utf-8")
+
     def build_memory_context(self, memories: list | str) -> str:
         if isinstance(memories, str):
             try:
