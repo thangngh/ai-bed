@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository, LessThan } from 'typeorm';
+import { DataSource, Repository, MoreThan } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { MemoryItem } from './entities/memory-item.entity';
 
@@ -40,6 +40,123 @@ export class MemoryService {
     }
 
     return result;
+  }
+
+  async getChildContext(childId: string, tenantId: string): Promise<{
+    interests: any[];
+    preferences: any[];
+    recentThemes: any[];
+    behaviors: any[];
+  }> {
+    const memories = await this.repo.find({
+      where: { tenantId, childId, isActive: 1 },
+      order: { confidence: 'DESC' },
+      take: 10,
+    });
+
+    return {
+      interests: memories.filter(m => m.memoryType === 'interest').map(this._toClient),
+      preferences: memories.filter(m => m.memoryType === 'preference').map(this._toClient),
+      recentThemes: memories.filter(m => m.memoryType === 'recent_theme').map(this._toClient),
+      behaviors: memories.filter(m => m.memoryType === 'behavior').map(this._toClient),
+    };
+  }
+
+  async extractFromStory(childId: string, tenantId: string, memories: any[], storyId: string): Promise<{ saved: number }> {
+    let saved = 0;
+    for (const mem of memories) {
+      const existing = await this.repo.findOne({
+        where: {
+          tenantId,
+          childId,
+          memoryType: mem.type || mem.memory_type,
+          memoryKey: mem.key || mem.memory_key,
+          memoryValue: mem.value || mem.memory_value,
+        },
+      });
+
+      if (existing) {
+        existing.confidence = Math.min(1, (existing.confidence || 0) + 0.1);
+        existing.lastReinforcedAt = new Date().toISOString();
+        existing.storyId = storyId;
+        await this.repo.save(existing);
+      } else {
+        const item = new MemoryItem();
+        item.memoryId = uuidv4();
+        item.tenantId = tenantId;
+        item.childId = childId;
+        item.storyId = storyId;
+        item.memoryType = mem.type || mem.memory_type;
+        item.memoryKey = mem.key || mem.memory_key;
+        item.memoryValue = mem.value || mem.memory_value;
+        item.confidence = mem.confidence || 0.5;
+        item.source = 'story_extract';
+        item.lastReinforcedAt = new Date().toISOString();
+        await this.repo.save(item);
+      }
+      saved++;
+    }
+
+    await this._enforceActiveLimit(childId, tenantId);
+    return { saved };
+  }
+
+  async reinforce(childId: string, tenantId: string, dto: {
+    type: string;
+    key: string;
+    value: string;
+    action: 'boost' | 'reduce';
+  }): Promise<{ success: boolean }> {
+    const existing = await this.repo.findOne({
+      where: { tenantId, childId, memoryType: dto.type, memoryKey: dto.key, memoryValue: dto.value },
+    });
+
+    if (existing) {
+      if (dto.action === 'boost') {
+        existing.confidence = Math.min(1, (existing.confidence || 0) + 0.2);
+      } else {
+        existing.confidence = Math.max(0.1, (existing.confidence || 0) - 0.2);
+      }
+      existing.lastReinforcedAt = new Date().toISOString();
+      existing.source = 'feedback';
+      await this.repo.save(existing);
+      return { success: true };
+    }
+
+    if (dto.action === 'boost') {
+      const item = new MemoryItem();
+      item.memoryId = uuidv4();
+      item.tenantId = tenantId;
+      item.childId = childId;
+      item.memoryType = dto.type;
+      item.memoryKey = dto.key;
+      item.memoryValue = dto.value;
+      item.confidence = 0.5;
+      item.source = 'feedback';
+      item.lastReinforcedAt = new Date().toISOString();
+      await this.repo.save(item);
+      return { success: true };
+    }
+
+    return { success: false };
+  }
+
+  private _toClient(m: MemoryItem) {
+    return { type: m.memoryType, key: m.memoryKey, value: m.memoryValue, confidence: m.confidence };
+  }
+
+  private async _enforceActiveLimit(childId: string, tenantId: string): Promise<void> {
+    const active = await this.repo.find({
+      where: { tenantId, childId, isActive: 1 },
+      order: { lastReinforcedAt: 'ASC' },
+    });
+    if (active.length > 20) {
+      const toDeactivate = active.slice(0, active.length - 20);
+      for (const m of toDeactivate) {
+        m.isActive = 0;
+        await this.repo.save(m);
+      }
+    }
   }
 
   async bulkCreate(tenantId: string, childId: string, memories: any[], storyId: string): Promise<void> {

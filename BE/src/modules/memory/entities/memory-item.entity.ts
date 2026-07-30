@@ -29,6 +29,12 @@ export class MemoryItem {
   @Column({ name: 'source_text', type: 'text', nullable: true })
   sourceText?: string;
 
+  @Column({ name: 'source', type: 'text', nullable: true })
+  source?: string;
+
+  @Column({ name: 'last_reinforced_at', type: 'text', nullable: true })
+  lastReinforcedAt?: string;
+
   @Column({ name: 'is_active', type: 'integer', default: 1 })
   isActive!: number;
 
