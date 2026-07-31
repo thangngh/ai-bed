@@ -24,6 +24,8 @@
 
 **Files:**
 - Modify: `BE/package.json` (via `npm install`)
+- Modify: `BE/src/common/pipes/validation.pipe.ts` (throw 422 instead of 400 — user-approved contract fix)
+- Create: `BE/src/common/__tests__/test-db.ts` (shared in-memory dual-DataSource helper — user-approved extraction)
 - Modify: `BE/src/common/__tests__/datasource.spec.ts`
 - Modify: `BE/src/modules/tenant/__tests__/tenant.controller.spec.ts`
 - Modify: `BE/src/modules/story/__tests__/story.integration.spec.ts`
@@ -42,19 +44,17 @@ Expected: install completes; `node_modules/supertest` exists.
 - [ ] **Step 2: Run full jest to capture current failures**
 
 Run: `npm test -- --ci` in `BE/`.
-Expected: 3 suites fail — `tenant.controller.spec.ts` (module supertest not found), `story.integration.spec.ts` (same), `datasource.spec.ts` (Nest could not find DataSource element during shutdown).
+Expected: 3 suites fail — `tenant.controller.spec.ts` (module supertest not found / DI resolve error), `story.integration.spec.ts` (same), `datasource.spec.ts` (Nest could not find DataSource element during shutdown).
 
-- [ ] **Step 3: Fix `datasource.spec.ts`**
+- [ ] **Step 3: Create shared in-memory dual-DataSource test helper**
 
-Replace the `overrideProvider(ConfigService)` approach with direct DataSource token overrides (the pattern already used by `tenant.controller.spec.ts`). This makes `module.close()` find both DataSources.
+`TypeOrmModule.forRootAsync({ name })` drops the `name` field from resolved options (`@nestjs/typeorm` `createAsyncOptionsProvider`), so `module.close()`/`app.close()` cannot find the named datasource on shutdown and always throw. The verified working teardown is **manual `destroy()` of both DataSources** in `afterAll`. `Test.createTestingModule` + `overrideProvider(getDataSourceToken('core'|'local'))` + `.useFactory` compiles fine; the bug is only in the teardown. Extract this pattern into a shared helper reused by every integration spec:
 
-Write `BE/src/common/__tests__/datasource.spec.ts`:
+Create `BE/src/common/__tests__/test-db.ts` (NOT matched by jest testRegex `.*\.spec\.ts$`):
 
 ```ts
-import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../../app.module';
 import { Tenant } from '../../modules/tenant/entities/tenant.entity';
 import { ChildProfile } from '../../modules/child/entities/child-profile.entity';
 import { Feedback } from '../../modules/feedback/entities/feedback.entity';
@@ -62,7 +62,7 @@ import { Story } from '../../modules/story/entities/story.entity';
 import { StorySection } from '../../modules/story/entities/story-section.entity';
 import { MemoryItem } from '../../modules/memory/entities/memory-item.entity';
 
-function makeDataSource(entities: any[]): DataSource {
+export function makeDataSource(entities: any[]): DataSource {
   return new DataSource({
     type: 'sqlite' as const,
     database: ':memory:',
@@ -71,122 +71,189 @@ function makeDataSource(entities: any[]): DataSource {
   });
 }
 
+export async function openTestDataSources() {
+  const core = makeDataSource([Tenant, ChildProfile, Feedback]);
+  const local = makeDataSource([Story, StorySection, MemoryItem]);
+  await core.initialize();
+  await local.initialize();
+  return { core, local };
+}
+
+export async function closeTestDataSources(core: DataSource, local: DataSource) {
+  await core.destroy();
+  await local.destroy();
+}
+
+export const CORE_TOKEN = getDataSourceToken('core');
+export const LOCAL_TOKEN = getDataSourceToken('local');
+```
+
+- [ ] **Step 4: Fix `datasource.spec.ts` using the helper**
+
+Write `BE/src/common/__tests__/datasource.spec.ts`:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppModule } from '../../app.module';
+import {
+  CORE_TOKEN,
+  LOCAL_TOKEN,
+  openTestDataSources,
+  closeTestDataSources,
+} from './test-db';
+import { DataSource } from 'typeorm';
+
 describe('DualDataSource', () => {
   let module: TestingModule;
 
   beforeAll(async () => {
+    const ds = await openTestDataSources();
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(getDataSourceToken('core'))
-      .useFactory({
-        factory: async () => {
-          const ds = makeDataSource([Tenant, ChildProfile, Feedback]);
-          await ds.initialize();
-          return ds;
-        },
-      })
-      .overrideProvider(getDataSourceToken('local'))
-      .useFactory({
-        factory: async () => {
-          const ds = makeDataSource([Story, StorySection, MemoryItem]);
-          await ds.initialize();
-          return ds;
-        },
-      })
+      .overrideProvider(CORE_TOKEN)
+      .useValue(ds.core)
+      .overrideProvider(LOCAL_TOKEN)
+      .useValue(ds.local)
       .compile();
   });
 
-  it('should have core datasource', async () => {
-    const ds = module.get(getDataSourceToken('core'));
+  it('should have core datasource', () => {
+    const ds: DataSource = module.get(CORE_TOKEN);
     expect(ds).toBeDefined();
     expect(ds.isInitialized).toBe(true);
   });
 
-  it('should have local datasource', async () => {
-    const ds = module.get(getDataSourceToken('local'));
+  it('should have local datasource', () => {
+    const ds: DataSource = module.get(LOCAL_TOKEN);
     expect(ds).toBeDefined();
     expect(ds.isInitialized).toBe(true);
   });
 
   afterAll(async () => {
-    await module.close();
+    await closeTestDataSources(module.get(CORE_TOKEN), module.get(LOCAL_TOKEN));
   });
 });
 ```
 
-- [ ] **Step 4: Verify `datasource.spec.ts` passes**
+- [ ] **Step 5: Verify `datasource.spec.ts` passes**
 
 Run: `npx jest src/common/__tests__/datasource.spec.ts --ci`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Fix `tenant.controller.spec.ts` if it still fails**
+- [ ] **Step 6: Fix `tenant.controller.spec.ts`**
 
-It already uses the token-override pattern correctly. After supertest is installed, run it. If it still fails with a DataSource shutdown error, apply the same both-token override as in Step 3 (override `core` via `useFactory`). Do not change the test body otherwise.
+The suite failed at DI compile time: `TenantModule` imports no `TypeOrmModule`, so the `coreDataSource` provider doesn't exist in the test tree and `overrideProvider` is a silent no-op (it only merges with an existing provider). The verified fix mirrors the real app, where `TypeOrmCoreModule` is `@Global()`: a `@Global()` test module exporting the `core` token.
+
+```ts
+import { Test } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
+import { Module, Global } from '@nestjs/common';
+import { TenantModule } from '../tenant.module';
+import { CORE_TOKEN, makeDataSource } from '../../../common/__tests__/test-db';
+import { DataSource } from 'typeorm';
+import { Tenant } from '../entities/tenant.entity';
+
+@Global()
+@Module({
+  providers: [
+    {
+      provide: CORE_TOKEN,
+      useFactory: async () => {
+        const ds = makeDataSource([Tenant]);
+        await ds.initialize();
+        return ds;
+      },
+    },
+  ],
+  exports: [CORE_TOKEN],
+})
+class TestCoreDataSourceModule {}
+
+describe('TenantController', () => {
+  let app: INestApplication;
+  let dataSource: DataSource;
+
+  beforeAll(async () => {
+    const module = await Test.createTestingModule({
+      imports: [TenantModule, TestCoreDataSourceModule],
+    }).compile();
+
+    app = module.createNestApplication();
+    await app.init();
+    dataSource = module.get(CORE_TOKEN);
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await dataSource.destroy();
+  });
+
+  it('POST /tenant/init should return a tenant_id', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/tenant/init')
+      .expect(201);
+
+    expect(res.body.tenant_id).toBeDefined();
+    expect(res.body.tenant_id.length).toBe(36);
+    expect(res.body.message).toBe('Tenant initialized');
+  });
+});
+```
 
 Run: `npx jest src/modules/tenant/__tests__/tenant.controller.spec.ts --ci`
 Expected: PASS (1 test).
 
-- [ ] **Step 6: Fix `story.integration.spec.ts` expectations + mock Engine**
+- [ ] **Step 7: Fix `validation.pipe.ts` to return 422 (user-approved contract fix)**
 
-The current file has 3 bugs that will surface once supertest is installed:
-1. Test "without X-Tenant-Id returns 401" — WRONG: `TenantMiddleware` auto-creates a tenant when header is missing, so it returns **201** (with `X-Tenant-Id` response header).
+The approved design mandates 422 for validation errors, but the custom pipe throws `BadRequestException` (400). Change it to `UnprocessableEntityException` (422), keeping the same error body shape:
+
+Edit `BE/src/common/pipes/validation.pipe.ts`: import `UnprocessableEntityException` instead of `BadRequestException` and throw `new UnprocessableEntityException({ error: { code: 'VALIDATION_ERROR', ... } })`.
+
+- [ ] **Step 8: Fix `story.integration.spec.ts` expectations + mock Engine**
+
+The current file has 3 bugs:
+1. Test "without X-Tenant-Id returns 401" — WRONG: `TenantMiddleware` auto-creates a tenant when header is missing, so it returns **201**.
 2. Test uses `test-integration-uuid` as tenant — NOT a valid UUID → middleware returns 400 `INVALID_TENANT`.
 3. Story creation calls the real Engine (`localhost:8000`, not running) → 502.
+
+Also: the test app has no global `ValidationPipe` (it's registered in `main.ts`, not `AppModule`), so the test app needs `app.useGlobalPipes(new ValidationPipe())` for validation to run. And the invalid-age expectation is **422** (after Step 7's pipe change), matching the design contract.
 
 Rewrite `BE/src/modules/story/__tests__/story.integration.spec.ts`:
 
 ```ts
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
-import { getDataSourceToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { AppModule } from '../../../app.module';
 import { EngineGatewayService } from '../../engine-gateway/engine-gateway.service';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { ChildProfile } from '../../child/entities/child-profile.entity';
-import { Feedback } from '../../feedback/entities/feedback.entity';
-import { Story } from '../../story/entities/story.entity';
-import { StorySection } from '../../story/entities/story-section.entity';
-import { MemoryItem } from '../../memory/entities/memory-item.entity';
+import {
+  CORE_TOKEN,
+  LOCAL_TOKEN,
+  openTestDataSources,
+  closeTestDataSources,
+} from '../../../common/__tests__/test-db';
 
 const VALID_TENANT = '12345678-1234-4123-8123-123456789abc';
 
 describe('Story Module (integration)', () => {
   let app: INestApplication;
   let module: TestingModule;
+  let core: DataSource;
+  let local: DataSource;
 
   beforeAll(async () => {
+    const ds = await openTestDataSources();
+    core = ds.core;
+    local = ds.local;
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(getDataSourceToken('core'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Tenant, ChildProfile, Feedback],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
-      .overrideProvider(getDataSourceToken('local'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Story, StorySection, MemoryItem],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
+      .overrideProvider(CORE_TOKEN)
+      .useValue(core)
+      .overrideProvider(LOCAL_TOKEN)
+      .useValue(local)
       .overrideProvider(EngineGatewayService)
       .useValue({
         generate: jest.fn().mockResolvedValue({
@@ -208,12 +275,13 @@ describe('Story Module (integration)', () => {
       .compile();
 
     app = module.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe());
     await app.init();
   });
 
   afterAll(async () => {
     await app.close();
-    await module.close();
+    await closeTestDataSources(core, local);
   });
 
   it('POST /story/create without X-Tenant-Id auto-creates tenant and returns 201', async () => {
@@ -236,33 +304,55 @@ describe('Story Module (integration)', () => {
   });
 
   it('POST /story/create with invalid tenant returns 400 INVALID_TENANT', async () => {
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .post('/story/create')
       .set('X-Tenant-Id', 'not-a-uuid')
       .send({ child_name: 'An', age: 4, theme: 'Động vật' })
       .expect(400);
+    expect(res.body.error.code).toBe('INVALID_TENANT');
   });
 
-  it('POST /story/create with invalid age returns 422', async () => {
-    await request(app.getHttpServer())
+  it('POST /story/create with invalid age returns 422 VALIDATION_ERROR', async () => {
+    const res = await request(app.getHttpServer())
       .post('/story/create')
       .set('X-Tenant-Id', VALID_TENANT)
       .send({ child_name: 'An', age: 10, theme: 'Động vật' })
       .expect(422);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 });
 ```
 
-- [ ] **Step 7: Run the full BE suite**
+> **Note:** do NOT use `module.close()`/`app.close()` as the sole teardown — it throws for named `forRootAsync` datasources. Manual `destroy()` of both DataSources is required. `app.close()` before the destroys is fine and runs other shutdown hooks.
+
+- [ ] **Step 8b: Fix `http-exception.filter.ts` to unwrap object-bodied errors (user-approved contract fix)**
+
+The filter sets `body.error = res` where `res` for object-bodied exceptions is already `{ error: { code, ... } }`, producing `{ error: { error: { code } } }` in production. FE reads `err.error.code` (`FE/src/utils/api.ts:38`), so this must be `{ error: { code, ... } }`. Fix `BE/src/common/filters/http-exception.filter.ts`:
+
+```ts
+if (exception instanceof HttpException) {
+  status = exception.getStatus();
+  const res = exception.getResponse();
+  body.error =
+    typeof res === 'string'
+      ? { code: 'HTTP_ERROR', message: res }
+      : (res as any).error ?? (res as any);
+  body.request_id = (request as any).requestId || uuidv4();
+}
+```
+
+This unwraps `{ error: { code } }` object bodies while keeping string exceptions and non-error-shaped objects intact. Verify `BE/src/common/__tests__/http-exception.filter.spec.ts` still passes (it asserts the `{ error: { code } }` shape directly — check its fixture shape and adjust only if it asserts the double-nested shape).
+
+- [ ] **Step 9: Run the full BE suite**
 
 Run: `npm test -- --ci` in `BE/`.
 Expected: 15 suites pass, 0 failures. (Count may be 15 suites / 56+ tests.)
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add BE/package.json BE/package-lock.json BE/src/common/__tests__/datasource.spec.ts BE/src/modules/tenant/__tests__/tenant.controller.spec.ts BE/src/modules/story/__tests__/story.integration.spec.ts
-git commit -m "test(be): fix failing test suites and add story integration tests"
+git add BE/package.json BE/package-lock.json BE/src/common/pipes/validation.pipe.ts BE/src/common/filters/http-exception.filter.ts BE/src/common/middleware/tenant.middleware.ts BE/src/common/__tests__/test-db.ts BE/src/common/__tests__/datasource.spec.ts BE/src/modules/tenant/__tests__/tenant.controller.spec.ts BE/src/modules/story/__tests__/story.integration.spec.ts
+git commit -m "test(be): fix failing test suites, add story integration tests, return 422 on validation"
 ```
 
 ---
@@ -462,6 +552,8 @@ git commit -m "fix(be): map camelCase payload to snake_case when calling Engine"
 
 **Files:**
 - Create: `BE/src/modules/story/__tests__/story.flow.spec.ts`
+- Modify: `BE/src/modules/engine-gateway/engine-gateway.service.ts` (ECONNREFUSED detection via err.cause.code — user-approved F1 fix)
+- Modify: `BE/src/modules/engine-gateway/engine.config.ts` + `BE/src/config/engine.config.ts` (default timeout 25s → 120s — user-approved F3 fix)
 
 **Interfaces:**
 - Consumes: `AppModule`, `EngineGatewayService` (real, now sending snake_case), running Engine on port from env.
@@ -479,15 +571,13 @@ Create `BE/src/modules/story/__tests__/story.flow.spec.ts`:
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { getDataSourceToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { AppModule } from '../../../app.module';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { ChildProfile } from '../../child/entities/child-profile.entity';
-import { Feedback } from '../../feedback/entities/feedback.entity';
-import { Story } from '../../story/entities/story.entity';
-import { StorySection } from '../../story/entities/story-section.entity';
-import { MemoryItem } from '../../memory/entities/memory-item.entity';
+import {
+  CORE_TOKEN,
+  LOCAL_TOKEN,
+  openTestDataSources,
+  closeTestDataSources,
+} from '../../../common/__tests__/test-db';
 
 // Only runs when E2E=1 (Engine must be running on ENGINE_URL)
 const describeE2E = process.env.E2E === '1' ? describe : describe.skip;
@@ -495,46 +585,32 @@ const describeE2E = process.env.E2E === '1' ? describe : describe.skip;
 describeE2E('Story flow with real Engine', () => {
   let app: INestApplication;
   let module: TestingModule;
+  let core: any;
+  let local: any;
 
-  beforeAll(async () => {
-    process.env.ENGINE_URL = process.env.ENGINE_URL || 'http://localhost:8001';
+  async function buildApp(engineUrl: string) {
+    process.env.ENGINE_URL = engineUrl;
+    const ds = await openTestDataSources();
+    core = ds.core;
+    local = ds.local;
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(getDataSourceToken('core'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Tenant, ChildProfile, Feedback],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
-      .overrideProvider(getDataSourceToken('local'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Story, StorySection, MemoryItem],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
+      .overrideProvider(CORE_TOKEN)
+      .useValue(core)
+      .overrideProvider(LOCAL_TOKEN)
+      .useValue(local)
       .compile();
     app = module.createNestApplication();
     await app.init();
+  }
+
+  beforeAll(async () => {
+    await buildApp(process.env.ENGINE_URL || 'http://localhost:8001');
   });
 
   afterAll(async () => {
-    await app.close();
-    await module.close();
+    await closeTestDataSources(core, local);
   });
 
   it('POST /story/create returns 201 with story from real Engine', async () => {
@@ -588,42 +664,10 @@ describeE2E('Story flow with real Engine', () => {
   }, 60000);
 
   it('returns 502 ENGINE_UNAVAILABLE when Engine is down', async () => {
-    await app.close();
-    await module.close();
+    await closeTestDataSources(core, local);
 
     const saveUrl = process.env.ENGINE_URL;
-    process.env.ENGINE_URL = 'http://localhost:9';
-
-    module = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(getDataSourceToken('core'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Tenant, ChildProfile, Feedback],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
-      .overrideProvider(getDataSourceToken('local'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Story, StorySection, MemoryItem],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
-      .compile();
-    app = module.createNestApplication();
-    await app.init();
+    await buildApp('http://localhost:65534');
 
     const init = await request(app.getHttpServer()).post('/tenant/init').expect(201);
     const tenantId = init.body.tenant_id;
@@ -640,7 +684,26 @@ describeE2E('Story flow with real Engine', () => {
 });
 ```
 
-> **IMPORTANT implementation note:** `engine.config.ts` reads `engine.baseUrl` via `ConfigService` at construction; the `beforeAll` sets `process.env.ENGINE_URL` before compiling the module so the real Engine URL is picked up. The "Engine down" test rebuilds the app with a dead port — restore the env var afterwards.
+> **IMPORTANT implementation note:** `engine.config.ts` reads `engine.baseUrl` via `ConfigService` at construction; the `buildApp()` helper sets `process.env.ENGINE_URL` before compiling the module so the real Engine URL is picked up. The "Engine down" test rebuilds the app with a dead high port (65534 — port 9 is a Fetch-spec forbidden port) — restore the env var afterwards. Reuse the shared `test-db.ts` helpers (open/close) and manual `destroy()` teardown — never `module.close()` (named forRootAsync datasources throw).
+
+- [ ] **Step 2b: Fix ECONNREFUSED detection (user-approved F1)**
+
+`engine-gateway.service.ts:57` checks `err.code === 'ECONNREFUSED'`, but Node's global `fetch` (undici) throws `TypeError: fetch failed` with the underlying code at `err.cause.code`, so a genuinely dead Engine surfaces as `ENGINE_ERROR` instead of `ENGINE_UNAVAILABLE`. Fix:
+
+```ts
+if ((err.cause?.code === 'ECONNREFUSED') || (err.code === 'ECONNREFUSED')) {
+  throw new HttpException(
+    { error: { code: 'ENGINE_UNAVAILABLE', message: 'Engine not available' } },
+    502,
+  );
+}
+```
+
+Keep the `err.code` check for mocked errors in the Task 2 contract test (which sets `err.code` directly).
+
+- [ ] **Step 2c: Raise default Engine timeout (user-approved F3)**
+
+The real pipeline takes 37-43s (fallback slower), but the default `ENGINE_TIMEOUT_MS` is 25000ms — production story creation would fail with `ENGINE_TIMEOUT`. In both `BE/src/modules/engine-gateway/engine.config.ts` and `BE/src/config/engine.config.ts`, change the default to `120000`. In `engine-gateway.service.ts:53`, fix the stale message "Engine timeout after 15s" → "Engine timeout after 120s".
 
 - [ ] **Step 3: Start a real Engine on a test port**
 
@@ -664,7 +727,7 @@ $env:E2E="1"
 $env:ENGINE_URL="http://localhost:8001"
 npx jest src/modules/story/__tests__/story.flow.spec.ts --ci --runInBand
 ```
-Expected: all 4 tests PASS (may take 30-90s due to real LLM pipeline; fallback story also counts as valid).
+Expected: all 4 tests PASS (may take 30-90s per story due to real LLM pipeline; fallback story also counts as valid). The default timeout is now 120s after Step 2c.
 
 - [ ] **Step 5: Confirm the spec is skipped when E2E is not set**
 
@@ -678,8 +741,8 @@ Kill the `python main.py` process started in Step 3.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add BE/src/modules/story/__tests__/story.flow.spec.ts
-git commit -m "test(be): add story flow integration tests against real Engine"
+git add BE/src/modules/story/__tests__/story.flow.spec.ts BE/src/modules/engine-gateway/engine-gateway.service.ts BE/src/modules/engine-gateway/engine.config.ts BE/src/config/engine.config.ts
+git commit -m "test(be): add story flow integration tests against real Engine, fix engine error/timeout defaults"
 ```
 
 ---
