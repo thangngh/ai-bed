@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MemoryService } from '../memory.service';
@@ -23,6 +24,19 @@ describe('MemoryService', () => {
             });
             await ds.initialize();
             return ds;
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: any) => {
+              const config: Record<string, any> = {
+                'memory.ttlDays': 90,
+                'memory.confidenceBoost': 0.1,
+                'memory.extractEnabled': true,
+              };
+              return config[key] ?? defaultValue;
+            }),
           },
         },
       ],
@@ -115,5 +129,89 @@ describe('MemoryService', () => {
       action: 'reduce',
     });
     expect(result.success).toBe(true);
+  });
+
+  // --- Task 3: New tests ---
+
+  it('getChildContext empty state returns empty groups', async () => {
+    const ctx = await service.getChildContext('child-empty', 'tenant-1');
+    expect(ctx.interests).toEqual([]);
+    expect(ctx.preferences).toEqual([]);
+    expect(ctx.recentThemes).toEqual([]);
+    expect(ctx.behaviors).toEqual([]);
+  });
+
+  it('getChildContext filters inactive memories', async () => {
+    const repo = dataSource.getRepository(MemoryItem);
+    await repo.save([
+      { memoryId: 'm1', tenantId: 't1', childId: 'c1', memoryType: 'interest', memoryKey: 'fav', memoryValue: 'khủng long', confidence: 0.9, isActive: 1 },
+      { memoryId: 'm2', tenantId: 't1', childId: 'c1', memoryType: 'interest', memoryKey: 'fav', memoryValue: 'công chúa', confidence: 0.8, isActive: 0 },
+    ]);
+
+    const ctx = await service.getChildContext('c1', 't1');
+    expect(ctx.interests).toHaveLength(1);
+    expect(ctx.interests[0].value).toBe('khủng long');
+  });
+
+  it('getChildContext enforces tenant isolation', async () => {
+    const repo = dataSource.getRepository(MemoryItem);
+    await repo.save([
+      { memoryId: 'iso1', tenantId: 'tenant-a', childId: 'c1', memoryType: 'interest', memoryKey: 'fav', memoryValue: 'mèo', confidence: 0.9, isActive: 1 },
+      { memoryId: 'iso2', tenantId: 'tenant-b', childId: 'c1', memoryType: 'interest', memoryKey: 'fav', memoryValue: 'chó', confidence: 0.9, isActive: 1 },
+    ]);
+
+    const ctxA = await service.getChildContext('c1', 'tenant-a');
+    expect(ctxA.interests).toHaveLength(1);
+    expect(ctxA.interests[0].value).toBe('mèo');
+
+    const ctxB = await service.getChildContext('c1', 'tenant-b');
+    expect(ctxB.interests).toHaveLength(1);
+    expect(ctxB.interests[0].value).toBe('chó');
+  });
+
+  it('getChildContext orders by confidence descending', async () => {
+    const repo = dataSource.getRepository(MemoryItem);
+    await repo.save([
+      { memoryId: 'ord1', tenantId: 't-ord', childId: 'c-ord', memoryType: 'interest', memoryKey: 'k', memoryValue: 'thấp', confidence: 0.3, isActive: 1, lastReinforcedAt: new Date().toISOString() },
+      { memoryId: 'ord2', tenantId: 't-ord', childId: 'c-ord', memoryType: 'interest', memoryKey: 'k', memoryValue: 'cao', confidence: 0.9, isActive: 1, lastReinforcedAt: new Date().toISOString() },
+    ]);
+
+    const ctx = await service.getChildContext('c-ord', 't-ord');
+    expect(ctx.interests).toHaveLength(2);
+    expect(ctx.interests[0].value).toBe('cao');
+    expect(ctx.interests[1].value).toBe('thấp');
+  });
+
+  it('extractFromStory no-op when memories empty', async () => {
+    const result = await service.extractFromStory('child-7', 'tenant-1', [], 'story-5');
+    expect(result.saved).toBe(0);
+  });
+
+  it('extractFromStory duplicate upserts confidence', async () => {
+    const result1 = await service.extractFromStory('child-8', 'tenant-1', [
+      { type: 'interest', key: 'fav', value: 'rùa', confidence: 0.5 },
+    ], 'story-6');
+    expect(result1.saved).toBe(1);
+
+    const result2 = await service.extractFromStory('child-8', 'tenant-1', [
+      { type: 'interest', key: 'fav', value: 'rùa', confidence: 0.5 },
+    ], 'story-7');
+    expect(result2.saved).toBe(1);
+
+    // Confidence should have increased (0.5 + 0.1 boost)
+    const relevant = await service.getRelevant('tenant-1', 'child-8');
+    const rua = relevant.find(r => r.key === 'fav');
+    expect(rua).toBeDefined();
+    expect(rua!.confidence).toBeGreaterThan(0.5);
+  });
+
+  it('reinforce reduce on non-existent is no-op', async () => {
+    const result = await service.reinforce('child-9', 'tenant-1', {
+      type: 'interest',
+      key: 'nonexistent',
+      value: 'nothing',
+      action: 'reduce',
+    });
+    expect(result.success).toBe(false);
   });
 });

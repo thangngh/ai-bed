@@ -6,6 +6,7 @@ import { Story } from '../../story/entities/story.entity';
 import { StorySection } from '../../story/entities/story-section.entity';
 import { Feedback } from '../../feedback/entities/feedback.entity';
 import { MemoryItem } from '../../memory/entities/memory-item.entity';
+import { ChildService } from '../../child/child.service';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
@@ -56,6 +57,12 @@ describe('AnalyticsService', () => {
           provide: getRepositoryToken(MemoryItem, 'local'),
           useFactory: (ds: DataSource) => ds.getRepository(MemoryItem),
           inject: [getDataSourceToken('local')],
+        },
+        {
+          provide: ChildService,
+          useValue: {
+            findById: jest.fn().mockResolvedValue(null),
+          },
         },
       ],
     }).compile();

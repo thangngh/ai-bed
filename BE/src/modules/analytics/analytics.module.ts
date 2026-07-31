@@ -5,12 +5,14 @@ import { Feedback } from '../feedback/entities/feedback.entity';
 import { MemoryItem } from '../memory/entities/memory-item.entity';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
+import { ChildModule } from '../child/child.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Story], 'local'),
     TypeOrmModule.forFeature([Feedback], 'core'),
     TypeOrmModule.forFeature([MemoryItem], 'local'),
+    ChildModule,
   ],
   controllers: [AnalyticsController],
   providers: [AnalyticsService],

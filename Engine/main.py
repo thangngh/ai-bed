@@ -56,7 +56,7 @@ async def health():
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
-    result = orchestrator.generate(req.model_dump())
+    result = await orchestrator.generate(req.model_dump())
     return GenerateResponse(**result)
 
 

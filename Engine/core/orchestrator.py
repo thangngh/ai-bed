@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -16,7 +17,7 @@ class StoryOrchestrator:
         self.pipeline = StoryPipeline(self.router)
         self.extractor = MemoryExtractor(self.router)
 
-    def generate(self, data: dict) -> dict:
+    async def generate(self, data: dict) -> dict:
         start = time.time()
 
         prompts = self.registry.assemble(age=data.get("age", 4), data={
@@ -30,15 +31,12 @@ class StoryOrchestrator:
             "favoriteCharacter": data.get("favorite_character", ""),
         })
 
-        import asyncio
-        result = asyncio.run(self.pipeline.run(prompts))
+        result = await self.pipeline.run(prompts)
 
         memories = []
         if result.success and not result.is_fallback:
             story_data = {"title": result.title, "content": result.content}
-            memories = asyncio.run(
-                self.extractor.extract(story_data, data.get("language", "vi"), is_fallback=result.is_fallback)
-            )
+            memories = await self.extractor.extract(story_data, data.get("language", "vi"), is_fallback=result.is_fallback)
 
         elapsed = int((time.time() - start) * 1000)
 

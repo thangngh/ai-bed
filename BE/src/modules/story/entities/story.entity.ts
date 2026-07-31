@@ -54,7 +54,7 @@ export class Story {
   @Column({ name: 'is_fallback', type: 'integer', default: 0 })
   isFallback!: number;
 
-  @Column({ name: 'is_saved', type: 'integer', default: 1 })
+  @Column({ name: 'is_saved', type: 'integer', default: 0 })
   isSaved!: number;
 
   @Column({ name: 'created_at', type: 'text', default: () => "datetime('now')" })

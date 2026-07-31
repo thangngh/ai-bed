@@ -2,7 +2,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
-from .validator import OutputValidator
+from .validator import OutputValidator, ValidationResult
 from .llm.router import LLMRouter
 from .prompts.registry import PromptRegistry
 
@@ -121,11 +121,9 @@ class StoryPipeline:
         content = data.get("content", [])
         sections_result = self.validator.validate_sections(content)
         if not sections_result.valid:
-            from .validator import ValidationResult
             return ValidationResult(valid=False, errors=sections_result.errors)
         depth_result = self.validator.check_section_depth(content)
         if not depth_result.valid:
-            from .validator import ValidationResult
             return ValidationResult(valid=False, errors=depth_result.errors)
         full_text = str(data)
         purity_result = self.validator.check_vietnamese_purity(full_text)

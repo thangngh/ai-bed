@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { Feedback } from './entities/feedback.entity';
 import { CreateFeedbackDto } from './dto/feedback.dto';
+import { ChildService } from '../child/child.service';
 import { MemoryService } from '../memory/memory.service';
 
 @Injectable()
@@ -12,28 +13,38 @@ export class FeedbackService {
 
   constructor(
     @InjectDataSource('core') private dataSource: DataSource,
+    private readonly childService: ChildService,
     private readonly memoryService: MemoryService,
   ) {
     this.repo = this.dataSource.getRepository(Feedback);
   }
 
   async submit(dto: CreateFeedbackDto, tenantId: string): Promise<{ feedback_id: string }> {
+    let childId: string | undefined;
+
+    if (dto.child_name) {
+      const profile = await this.childService.findByName(tenantId, dto.child_name);
+      if (profile) {
+        childId = profile.childId;
+      }
+    }
+
     const feedback = new Feedback();
     feedback.feedbackId = uuidv4();
     feedback.tenantId = tenantId;
     feedback.storyId = dto.story_id;
-    feedback.childId = dto.child_name || null;
-    feedback.listenedComplete = dto.listened_complete ?? null;
-    feedback.wantsMore = dto.wants_more ?? null;
-    feedback.suitable = dto.suitable ?? null;
-    feedback.rating = dto.rating ?? null;
-    feedback.note = dto.note || null;
+    feedback.childId = childId;
+    feedback.listenedComplete = dto.listened_complete ?? undefined;
+    feedback.wantsMore = dto.wants_more ?? undefined;
+    feedback.suitable = dto.suitable ?? undefined;
+    feedback.rating = dto.rating ?? undefined;
+    feedback.note = dto.note || undefined;
     await this.repo.save(feedback);
 
-    if (dto.rating) {
+    if (dto.rating && childId) {
       const action = dto.rating >= 4 ? 'boost' : dto.rating <= 2 ? 'reduce' : null;
-      if (action && dto.child_name) {
-        await this.memoryService.reinforce(dto.child_name || 'unknown', tenantId, {
+      if (action) {
+        await this.memoryService.reinforce(childId, tenantId, {
           type: 'feedback',
           key: 'story_rating',
           value: `Rating: ${dto.rating}`,

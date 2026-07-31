@@ -42,13 +42,13 @@ describe('ChildService', () => {
   });
 
   it('should create profile with gender', async () => {
-    const p = await service.getOrCreate('tenant-1', { child_name: 'An', age: 4, gender: 'boy' } as any);
+    const p = await service.getOrCreate('tenant-1', { child_name: 'Binh', age: 4, gender: 'boy' } as any);
     expect(p.gender).toBe('boy');
   });
 
   it('should return existing profile on duplicate', async () => {
-    const p1 = await service.getOrCreate('tenant-1', { child_name: 'An', age: 4 } as any);
-    const p2 = await service.getOrCreate('tenant-1', { child_name: 'An', age: 5 } as any);
+    const p1 = await service.getOrCreate('tenant-1', { child_name: 'Chi', age: 4 } as any);
+    const p2 = await service.getOrCreate('tenant-1', { child_name: 'Chi', age: 5 } as any);
     expect(p1.childId).toEqual(p2.childId);
     expect(p1.age).toBe(4);
   });

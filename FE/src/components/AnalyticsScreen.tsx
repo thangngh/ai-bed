@@ -8,20 +8,20 @@ import { analyticsClient } from '../utils/analyticsClient';
 import { ChildProfile } from '../types';
 
 interface AnalyticsScreenProps {
-  children: ChildProfile[];
+  childProfiles: ChildProfile[];
   activeChild: ChildProfile | null;
   onBack: () => void;
   isNightMode: boolean;
 }
 
 export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
-  children,
+  childProfiles,
   activeChild,
   onBack,
   isNightMode,
 }) => {
   const [selectedChildId, setSelectedChildId] = useState<string>(
-    activeChild?.childId || (children.length > 0 ? children[0].childId : '')
+    activeChild?.childId || (childProfiles.length > 0 ? childProfiles[0].childId : '')
   );
   const [storyStats, setStoryStats] = useState<any>(null);
   const [feedbackStats, setFeedbackStats] = useState<any>(null);
@@ -85,7 +85,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
           </h1>
         </div>
 
-        {children.length > 0 && (
+        {childProfiles.length > 0 && (
           <div className="mb-6">
             <select
               value={selectedChildId}
@@ -96,7 +96,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
                   : 'bg-white/80 border-amber-200 text-amber-950'
               }`}
             >
-              {children.map((child) => (
+              {childProfiles.map((child) => (
                 <option key={child.childId} value={child.childId}>
                   {child.childName}
                 </option>

@@ -36,6 +36,10 @@ export class ChildService {
     return this.repo.find({ where: { tenantId, isActive: 1 } });
   }
 
+  async findByName(tenantId: string, childName: string): Promise<ChildProfile | null> {
+    return this.repo.findOne({ where: { tenantId, childName, isActive: 1 } });
+  }
+
   async findById(childId: string): Promise<ChildProfile | null> {
     return this.repo.findOne({ where: { childId } });
   }

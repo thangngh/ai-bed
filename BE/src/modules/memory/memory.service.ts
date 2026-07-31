@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository, MoreThan } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,7 +11,10 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 export class MemoryService {
   private repo: Repository<MemoryItem>;
 
-  constructor(@InjectDataSource('local') private dataSource: DataSource) {
+  constructor(
+    @InjectDataSource('local') private dataSource: DataSource,
+    private readonly configService: ConfigService,
+  ) {
     this.repo = this.dataSource.getRepository(MemoryItem);
   }
 
@@ -50,19 +54,50 @@ export class MemoryService {
   }> {
     const memories = await this.repo.find({
       where: { tenantId, childId, isActive: 1 },
-      order: { confidence: 'DESC' },
-      take: 10,
+      take: 50,
     });
 
+    const ttlDays = this.configService.get<number>('memory.ttlDays', 90);
+    const now = Date.now();
+
+    // Apply decay, filter expired
+    const toDeactivate: MemoryItem[] = [];
+    const processed = memories.filter(m => {
+      if (m.lastReinforcedAt) {
+        const daysSince = (now - new Date(m.lastReinforcedAt).getTime()) / 86400000;
+        const decay = Math.max(0, 1 - (daysSince / ttlDays));
+        m.confidence = m.confidence * decay;
+        if (m.confidence <= 0) {
+          toDeactivate.push(m);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // Prune expired (single pass after decay calculation)
+    for (const m of toDeactivate) {
+      m.isActive = 0;
+      await this.repo.save(m);
+    }
+
+    processed.sort((a, b) => b.confidence - a.confidence);
+    const top = processed.slice(0, 10);
+
     return {
-      interests: memories.filter(m => m.memoryType === 'interest').map(this._toClient),
-      preferences: memories.filter(m => m.memoryType === 'preference').map(this._toClient),
-      recentThemes: memories.filter(m => m.memoryType === 'recent_theme').map(this._toClient),
-      behaviors: memories.filter(m => m.memoryType === 'behavior').map(this._toClient),
+      interests: top.filter(m => m.memoryType === 'interest').map(this._toClient),
+      preferences: top.filter(m => m.memoryType === 'preference').map(this._toClient),
+      recentThemes: top.filter(m => m.memoryType === 'recent_theme').map(this._toClient),
+      behaviors: top.filter(m => m.memoryType === 'behavior').map(this._toClient),
     };
   }
 
   async extractFromStory(childId: string, tenantId: string, memories: any[], storyId: string): Promise<{ saved: number }> {
+    if (!this.configService.get<boolean>('memory.extractEnabled', true)) {
+      return { saved: 0 };
+    }
+
+    const boost = this.configService.get<number>('memory.confidenceBoost', 0.1);
     let saved = 0;
     for (const mem of memories) {
       const existing = await this.repo.findOne({
@@ -76,7 +111,7 @@ export class MemoryService {
       });
 
       if (existing) {
-        existing.confidence = Math.min(1, (existing.confidence || 0) + 0.1);
+        existing.confidence = Math.min(1, (existing.confidence || 0) + boost);
         existing.lastReinforcedAt = new Date().toISOString();
         existing.storyId = storyId;
         await this.repo.save(existing);
@@ -107,16 +142,15 @@ export class MemoryService {
     value: string;
     action: 'boost' | 'reduce';
   }): Promise<{ success: boolean }> {
+    const boost = this.configService.get<number>('memory.confidenceBoost', 0.1);
+    const delta = dto.action === 'boost' ? boost * 2 : -boost * 2;
+
     const existing = await this.repo.findOne({
       where: { tenantId, childId, memoryType: dto.type, memoryKey: dto.key, memoryValue: dto.value },
     });
 
     if (existing) {
-      if (dto.action === 'boost') {
-        existing.confidence = Math.min(1, (existing.confidence || 0) + 0.2);
-      } else {
-        existing.confidence = Math.max(0.1, (existing.confidence || 0) - 0.2);
-      }
+      existing.confidence = Math.min(1, Math.max(0.1, (existing.confidence || 0) + delta));
       existing.lastReinforcedAt = new Date().toISOString();
       existing.source = 'feedback';
       await this.repo.save(existing);

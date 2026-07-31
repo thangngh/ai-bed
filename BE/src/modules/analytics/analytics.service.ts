@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, MoreThan } from 'typeorm';
 import { Story } from '../story/entities/story.entity';
 import { Feedback } from '../feedback/entities/feedback.entity';
 import { MemoryItem } from '../memory/entities/memory-item.entity';
+import { ChildService } from '../child/child.service';
 
 export interface StoryStats {
   total_stories: number;
@@ -46,11 +47,16 @@ export class AnalyticsService {
     @InjectRepository(Story, 'local') private storyRepo: Repository<Story>,
     @InjectRepository(Feedback, 'core') private feedbackRepo: Repository<Feedback>,
     @InjectRepository(MemoryItem, 'local') private memoryRepo: Repository<MemoryItem>,
+    private readonly childService: ChildService,
   ) {}
 
-  async getStoryStats(childId: string, tenantId: string): Promise<StoryStats> {
+  async getStoryStats(childId: string, tenantId: string, days: number = 30): Promise<StoryStats> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const sinceStr = since.toISOString().replace('T', ' ').replace('Z', ''); // SQLite format
+
     const stories = await this.storyRepo.find({
-      where: { tenantId, childId },
+      where: { tenantId, childId, createdAt: MoreThan(sinceStr) },
     });
 
     const total_stories = stories.length;
@@ -173,6 +179,24 @@ export class AnalyticsService {
       where: { tenantId },
     });
 
+    // Collect unique childIds từ stories và feedbacks
+    const childIds = new Set<string>();
+    for (const s of stories) if (s.childId) childIds.add(s.childId);
+    for (const f of feedbacks) if (f.childId) childIds.add(f.childId);
+
+    // Fetch child names from ChildService
+    const childNames = new Map<string, string>();
+    for (const id of childIds) {
+      try {
+        const profile = await this.childService.findById(id);
+        if (profile) {
+          childNames.set(id, profile.childName);
+        }
+      } catch {
+        childNames.set(id, id); // fallback to UUID
+      }
+    }
+
     const childMap = new Map<string, { childId: string; total_stories: number; last_active: string | null }>();
     for (const s of stories) {
       if (s.childId) {
@@ -203,7 +227,7 @@ export class AnalyticsService {
 
     const children = Array.from(childMap.values()).map(c => ({
       childId: c.childId,
-      childName: c.childId,
+      childName: childNames.get(c.childId) || c.childId,
       total_stories: c.total_stories,
       avg_rating: ratingMap.has(c.childId) ? ratingMap.get(c.childId)!.sum / ratingMap.get(c.childId)!.count : null,
       last_active: c.last_active,

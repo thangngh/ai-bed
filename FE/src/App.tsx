@@ -152,10 +152,24 @@ export default function App() {
 
   // Save story to collection
   const handleSaveStory = (storyToSave: BedtimeStory) => {
-    if (savedStories.some((s) => s.id === storyToSave.id)) {
+    // Toggle localStorage
+    const isCurrentlySaved = savedStories.some((s) => s.id === storyToSave.id);
+    if (isCurrentlySaved) {
       setSavedStories((prev) => prev.filter((s) => s.id !== storyToSave.id));
     } else {
       setSavedStories((prev) => [storyToSave, ...prev]);
+    }
+
+    // Sync to BE for backend stories
+    const beId = storyToSave.id.replace('be-', '');
+    if (storyToSave.id.startsWith('be-') && beId) {
+      apiClient('/story/save', {
+        method: 'POST',
+        body: JSON.stringify({ story_id: beId }),
+      }).catch(() => {
+        // Silent fail — localStorage already toggled
+        console.warn('BE save sync failed');
+      });
     }
   };
 
@@ -341,7 +355,7 @@ export default function App() {
         )}
         {currentScreen === 'analytics' && (
           <AnalyticsScreen
-            children={children}
+            childProfiles={children}
             activeChild={activeChild}
             onBack={() => setCurrentScreen('home')}
             isNightMode={isNightMode}

@@ -1,11 +1,16 @@
 import { RateLimiterMiddleware } from '../middleware/rate-limiter.middleware';
 import { HttpException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 describe('RateLimiterMiddleware', () => {
   let middleware: RateLimiterMiddleware;
 
   beforeEach(() => {
-    middleware = new RateLimiterMiddleware({ capacity: 3, refillRate: 10 });
+    const configService = { get: jest.fn((key: string, def?: any) => {
+      const map: Record<string, any> = { 'rateLimit.capacity': 3, 'rateLimit.refillRate': 10 };
+      return map[key] ?? def;
+    }) } as any as ConfigService;
+    middleware = new RateLimiterMiddleware(configService);
   });
 
   it('should allow requests within capacity', () => {

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { AppModule } from '../../app.module';
 
@@ -8,7 +9,16 @@ describe('DualDataSource', () => {
   beforeAll(async () => {
     module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(ConfigService)
+      .useValue({
+        get: (key: string, defaultVal?: any) => {
+          if (key === 'CORE_DB_PATH' || key === 'LOCAL_DB_PATH') return ':memory:';
+          if (key === 'NODE_ENV') return 'development';
+          return defaultVal;
+        },
+      })
+      .compile();
   });
 
   it('should have core datasource', async () => {

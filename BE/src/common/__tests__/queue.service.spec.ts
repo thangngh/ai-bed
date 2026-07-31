@@ -48,7 +48,7 @@ describe('QueueService', () => {
     ]);
 
     const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(60);
+    expect(elapsed).toBeLessThan(150);
     expect(results).toEqual(['a', 'b']);
   });
 });

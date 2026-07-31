@@ -1,4 +1,5 @@
 import { Injectable, NestMiddleware, HttpException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Request, Response, NextFunction } from 'express';
 
 interface TokenBucket {
@@ -11,8 +12,13 @@ interface TokenBucket {
 @Injectable()
 export class RateLimiterMiddleware implements NestMiddleware {
   private buckets = new Map<string, TokenBucket>();
+  private readonly capacity: number;
+  private readonly refillRate: number;
 
-  constructor(private readonly config: { capacity: number; refillRate: number }) {}
+  constructor(private readonly configService: ConfigService) {
+    this.capacity = this.configService.get<number>('rateLimit.capacity', 10);
+    this.refillRate = this.configService.get<number>('rateLimit.refillRate', 60);
+  }
 
   use(req: Request, res: Response, next: NextFunction) {
     const tenantId = (req as any).tenantId;
@@ -21,10 +27,10 @@ export class RateLimiterMiddleware implements NestMiddleware {
     let bucket = this.buckets.get(tenantId);
     if (!bucket) {
       bucket = {
-        tokens: this.config.capacity,
+        tokens: this.capacity,
         lastRefill: Date.now(),
-        capacity: this.config.capacity,
-        refillRate: this.config.refillRate,
+        capacity: this.capacity,
+        refillRate: this.refillRate,
       };
       this.buckets.set(tenantId, bucket);
     }
