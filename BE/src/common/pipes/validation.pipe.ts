@@ -1,4 +1,4 @@
-import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
+import { PipeTransform, Injectable, ArgumentMetadata, UnprocessableEntityException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 
@@ -13,7 +13,7 @@ export class ValidationPipe implements PipeTransform<any> {
       const firstError = errors[0];
       const constraints = firstError.constraints || {};
       const message = Object.values(constraints)[0] || 'Validation failed';
-      throw new BadRequestException({
+      throw new UnprocessableEntityException({
         error: {
           code: 'VALIDATION_ERROR',
           message,

@@ -1,8 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { Global, INestApplication, Module } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { Module, Global } from '@nestjs/common';
 import { TenantModule } from '../tenant.module';
-import { getDataSourceToken } from '@nestjs/typeorm';
+import { CORE_TOKEN, makeDataSource } from '../../../common/__tests__/test-db';
 import { DataSource } from 'typeorm';
 import { Tenant } from '../entities/tenant.entity';
 
@@ -10,20 +11,15 @@ import { Tenant } from '../entities/tenant.entity';
 @Module({
   providers: [
     {
-      provide: getDataSourceToken('core'),
+      provide: CORE_TOKEN,
       useFactory: async () => {
-        const ds = new DataSource({
-          type: 'sqlite',
-          database: ':memory:',
-          entities: [Tenant],
-          synchronize: true,
-        });
+        const ds = makeDataSource([Tenant]);
         await ds.initialize();
         return ds;
       },
     },
   ],
-  exports: [getDataSourceToken('core')],
+  exports: [CORE_TOKEN],
 })
 class TestCoreDataSourceModule {}
 
@@ -38,7 +34,7 @@ describe('TenantController', () => {
 
     app = module.createNestApplication();
     await app.init();
-    dataSource = module.get(getDataSourceToken('core'));
+    dataSource = module.get(CORE_TOKEN);
   });
 
   afterAll(async () => {

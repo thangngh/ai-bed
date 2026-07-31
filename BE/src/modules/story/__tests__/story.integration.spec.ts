@@ -1,54 +1,36 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../../app.module';
 import { EngineGatewayService } from '../../engine-gateway/engine-gateway.service';
 import { ValidationPipe } from '../../../common/pipes/validation.pipe';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { ChildProfile } from '../../child/entities/child-profile.entity';
-import { Feedback } from '../../feedback/entities/feedback.entity';
-import { Story } from '../../story/entities/story.entity';
-import { StorySection } from '../../story/entities/story-section.entity';
-import { MemoryItem } from '../../memory/entities/memory-item.entity';
+import {
+  CORE_TOKEN,
+  LOCAL_TOKEN,
+  openTestDataSources,
+  closeTestDataSources,
+} from '../../../common/__tests__/test-db';
 
 const VALID_TENANT = '12345678-1234-4123-8123-123456789abc';
 
 describe('Story Module (integration)', () => {
   let app: INestApplication;
   let module: TestingModule;
+  let core: DataSource;
+  let local: DataSource;
 
   beforeAll(async () => {
+    const ds = await openTestDataSources();
+    core = ds.core;
+    local = ds.local;
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(getDataSourceToken('core'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Tenant, ChildProfile, Feedback],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
-      .overrideProvider(getDataSourceToken('local'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Story, StorySection, MemoryItem],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
+      .overrideProvider(CORE_TOKEN)
+      .useValue(core)
+      .overrideProvider(LOCAL_TOKEN)
+      .useValue(local)
       .overrideProvider(EngineGatewayService)
       .useValue({
         generate: jest.fn().mockResolvedValue({
@@ -75,8 +57,11 @@ describe('Story Module (integration)', () => {
   });
 
   afterAll(async () => {
-    await module.get(getDataSourceToken('core')).destroy();
-    await module.get(getDataSourceToken('local')).destroy();
+    // Manual destroy() is required because app.close()/module.close() throw for
+    // named `forRootAsync` datasources: @nestjs/typeorm drops the `name` field
+    // from the resolved options, so the shutdown hook looks up the wrong token.
+    // If that framework shutdown bug is fixed, remove the manual destroy.
+    await closeTestDataSources(core, local);
   });
 
   it('POST /story/create without X-Tenant-Id auto-creates tenant and returns 201', async () => {
@@ -99,18 +84,20 @@ describe('Story Module (integration)', () => {
   });
 
   it('POST /story/create with invalid tenant returns 400 INVALID_TENANT', async () => {
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .post('/story/create')
       .set('X-Tenant-Id', 'not-a-uuid')
       .send({ child_name: 'An', age: 4, theme: 'Động vật' })
       .expect(400);
+    expect(res.body.error.code).toBe('INVALID_TENANT');
   });
 
-  it('POST /story/create with invalid age returns 400 VALIDATION_ERROR', async () => {
-    await request(app.getHttpServer())
+  it('POST /story/create with invalid age returns 422 VALIDATION_ERROR', async () => {
+    const res = await request(app.getHttpServer())
       .post('/story/create')
       .set('X-Tenant-Id', VALID_TENANT)
       .send({ child_name: 'An', age: 10, theme: 'Động vật' })
-      .expect(400);
+      .expect(422);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 });

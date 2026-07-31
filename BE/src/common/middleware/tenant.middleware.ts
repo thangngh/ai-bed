@@ -20,7 +20,9 @@ export class TenantMiddleware implements NestMiddleware {
     }
 
     if (!UUID_REGEX.test(tenantId)) {
-      throw new BadRequestException('INVALID_TENANT');
+      throw new BadRequestException({
+        error: { code: 'INVALID_TENANT', message: 'Invalid tenant ID format' },
+      });
     }
 
     await this.tenantService.findOrCreate(tenantId);
