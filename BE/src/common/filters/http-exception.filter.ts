@@ -18,7 +18,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
-      body.error = typeof res === 'string' ? { code: 'HTTP_ERROR', message: res } : (res as any);
+      body.error =
+        typeof res === 'string'
+          ? { code: 'HTTP_ERROR', message: res }
+          : (res as any).error ?? (res as any);
       body.request_id = (request as any).requestId || uuidv4();
     }
 

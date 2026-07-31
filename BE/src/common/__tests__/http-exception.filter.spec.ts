@@ -25,7 +25,7 @@ describe('HttpExceptionFilter', () => {
     filter.catch(exception, host);
     expect(mockResponse.status).toHaveBeenCalledWith(400);
     expect(mockResponse.json).toHaveBeenCalledWith({
-      error: { error: { code: 'VALIDATION_ERROR', message: 'Invalid age' } },
+      error: { code: 'VALIDATION_ERROR', message: 'Invalid age' },
       request_id: 'req-123',
     });
   });
