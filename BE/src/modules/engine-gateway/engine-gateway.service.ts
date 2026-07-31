@@ -21,7 +21,7 @@ export class EngineGatewayService {
       const response = await fetch(`${this.baseUrl}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': dto.tenantId },
-        body: JSON.stringify(dto),
+        body: JSON.stringify(this.toEnginePayload(dto)),
         signal: controller.signal,
       });
 
@@ -67,5 +67,20 @@ export class EngineGatewayService {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private toEnginePayload(dto: GenerateDto): Record<string, unknown> {
+    return {
+      child_name: dto.childName,
+      age: dto.age,
+      theme: dto.theme,
+      goal: dto.goal ?? '',
+      mood: dto.mood ?? 'vui vẻ',
+      language: dto.language ?? 'vi',
+      memories: dto.memories ?? [],
+      recent_stories: dto.recentStories ?? [],
+      gender: dto.gender ?? '',
+      favorite_character: dto.favoriteCharacter ?? '',
+    };
   }
 }
