@@ -462,7 +462,6 @@ git commit -m "fix(be): map camelCase payload to snake_case when calling Engine"
 
 **Files:**
 - Create: `BE/src/modules/story/__tests__/story.flow.spec.ts`
-- Modify: `BE/src/modules/story/__tests__/story.integration.spec.ts` (extract shared datasource helper)
 
 **Interfaces:**
 - Consumes: `AppModule`, `EngineGatewayService` (real, now sending snake_case), running Engine on port from env.
