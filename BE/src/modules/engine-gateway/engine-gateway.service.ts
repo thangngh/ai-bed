@@ -50,11 +50,11 @@ export class EngineGatewayService {
       if (err instanceof HttpException) throw err;
       if (err.name === 'AbortError') {
         throw new HttpException(
-          { error: { code: 'ENGINE_TIMEOUT', message: 'Engine timeout after 15s' } },
+          { error: { code: 'ENGINE_TIMEOUT', message: 'Engine timeout after 120s' } },
           502,
         );
       }
-      if (err.code === 'ECONNREFUSED') {
+      if ((err.cause?.code === 'ECONNREFUSED') || (err.code === 'ECONNREFUSED')) {
         throw new HttpException(
           { error: { code: 'ENGINE_UNAVAILABLE', message: 'Engine not available' } },
           502,

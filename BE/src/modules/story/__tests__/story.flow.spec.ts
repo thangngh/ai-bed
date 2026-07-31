@@ -97,7 +97,7 @@ describeE2E('Story flow with real Engine', () => {
     await closeTestDataSources(core, local);
 
     const saveUrl = process.env.ENGINE_URL;
-    await buildApp('http://localhost:9');
+    await buildApp('http://localhost:65534');
 
     const init = await request(app.getHttpServer()).post('/tenant/init').expect(201);
     const tenantId = init.body.tenant_id;
