@@ -53,7 +53,7 @@ describe('StoryViewScreen', () => {
         isNightMode={false}
       />,
     );
-    const saveBtn = screen.getByTitle(/lưu/i) || screen.getByRole('button', { name: /lưu/i });
+    const saveBtn = screen.getByRole('button', { name: /lưu/i });
     fireEvent.click(saveBtn);
     expect(onSaveStory).toHaveBeenCalledWith(story);
   });
