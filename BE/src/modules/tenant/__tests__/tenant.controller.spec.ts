@@ -1,10 +1,31 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { Global, INestApplication, Module } from '@nestjs/common';
 import request from 'supertest';
 import { TenantModule } from '../tenant.module';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Tenant } from '../entities/tenant.entity';
+
+@Global()
+@Module({
+  providers: [
+    {
+      provide: getDataSourceToken('core'),
+      useFactory: async () => {
+        const ds = new DataSource({
+          type: 'sqlite',
+          database: ':memory:',
+          entities: [Tenant],
+          synchronize: true,
+        });
+        await ds.initialize();
+        return ds;
+      },
+    },
+  ],
+  exports: [getDataSourceToken('core')],
+})
+class TestCoreDataSourceModule {}
 
 describe('TenantController', () => {
   let app: INestApplication;
@@ -12,22 +33,8 @@ describe('TenantController', () => {
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
-      imports: [TenantModule],
-    })
-      .overrideProvider(getDataSourceToken('core'))
-      .useFactory({
-        factory: async () => {
-          const ds = new DataSource({
-            type: 'sqlite',
-            database: ':memory:',
-            entities: [Tenant],
-            synchronize: true,
-          });
-          await ds.initialize();
-          return ds;
-        },
-      })
-      .compile();
+      imports: [TenantModule, TestCoreDataSourceModule],
+    }).compile();
 
     app = module.createNestApplication();
     await app.init();

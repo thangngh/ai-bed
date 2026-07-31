@@ -1,7 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
 import { getDataSourceToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { AppModule } from '../../app.module';
+import { Tenant } from '../../modules/tenant/entities/tenant.entity';
+import { ChildProfile } from '../../modules/child/entities/child-profile.entity';
+import { Feedback } from '../../modules/feedback/entities/feedback.entity';
+import { Story } from '../../modules/story/entities/story.entity';
+import { StorySection } from '../../modules/story/entities/story-section.entity';
+import { MemoryItem } from '../../modules/memory/entities/memory-item.entity';
+
+function makeDataSource(entities: any[]): DataSource {
+  return new DataSource({
+    type: 'sqlite' as const,
+    database: ':memory:',
+    entities,
+    synchronize: true,
+  });
+}
 
 describe('DualDataSource', () => {
   let module: TestingModule;
@@ -10,12 +25,20 @@ describe('DualDataSource', () => {
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
-      .overrideProvider(ConfigService)
-      .useValue({
-        get: (key: string, defaultVal?: any) => {
-          if (key === 'CORE_DB_PATH' || key === 'LOCAL_DB_PATH') return ':memory:';
-          if (key === 'NODE_ENV') return 'development';
-          return defaultVal;
+      .overrideProvider(getDataSourceToken('core'))
+      .useFactory({
+        factory: async () => {
+          const ds = makeDataSource([Tenant, ChildProfile, Feedback]);
+          await ds.initialize();
+          return ds;
+        },
+      })
+      .overrideProvider(getDataSourceToken('local'))
+      .useFactory({
+        factory: async () => {
+          const ds = makeDataSource([Story, StorySection, MemoryItem]);
+          await ds.initialize();
+          return ds;
         },
       })
       .compile();
@@ -34,6 +57,7 @@ describe('DualDataSource', () => {
   });
 
   afterAll(async () => {
-    await module.close();
+    await module.get(getDataSourceToken('core')).destroy();
+    await module.get(getDataSourceToken('local')).destroy();
   });
 });
