@@ -46,3 +46,14 @@ class TestLLMRouter:
         import asyncio
         with pytest.raises(FallbackTriggered):
             asyncio.run(router.complete("test"))
+
+    def test_loads_openrouter_when_key_present(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+        monkeypatch.setenv("PRIMARY_LLM", "")
+        monkeypatch.setenv("FALLBACK_LLM", "")
+        monkeypatch.setenv("CUSTOM_LLM_URL", "")
+        monkeypatch.setenv("GEMINI_API_KEY", "")
+        monkeypatch.setenv("OPENAI_API_KEYS", "")
+        router = LLMRouter()
+        assert "openrouter" in router.providers
+        assert router.fallback_order == ["openrouter"]
