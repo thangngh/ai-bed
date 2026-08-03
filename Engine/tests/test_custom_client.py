@@ -1,5 +1,6 @@
 import pytest
 from core.llm.custom_client import CustomClient
+from core.llm.custom_client import parse_sse_response, DEFAULT_MAX_TOKENS, DEFAULT_TIMEOUT_SECONDS
 
 
 class TestCustomClient:
@@ -16,3 +17,37 @@ class TestCustomClient:
         monkeypatch.delenv("CUSTOM_LLM_URL", raising=False)
         with pytest.raises(ValueError, match="CUSTOM_LLM_URL"):
             CustomClient()
+
+    def test_default_max_tokens_sufficient_for_reasoning_model(self):
+        # The proxy's opencode model is a reasoning model: it consumes
+        # reasoning tokens before producing content. The default budget must
+        # leave room for the story content, or the writer stage gets
+        # truncated JSON (empty content) and falls back.
+        assert DEFAULT_MAX_TOKENS >= 4096
+
+    def test_default_timeout_sufficient_for_reasoning_model(self):
+        # The writer stage (full story, 4096 tokens, reasoning) exceeds 180s.
+        # A shorter httpx timeout aborts mid-generation and the router logs
+        # "Provider custom failed: " with an empty message -> fallback.
+        assert DEFAULT_TIMEOUT_SECONDS >= 300
+
+
+class TestParseSseResponse:
+    def test_plain_json(self):
+        body = '{"choices": [{"message": {"content": "hi"}}]}'
+        assert parse_sse_response(body) == "hi"
+
+    def test_single_data_event(self):
+        body = 'data: {"choices": [{"message": {"content": "hi"}}]}\n\n'
+        assert parse_sse_response(body) == "hi"
+
+    def test_data_event_with_done(self):
+        body = (
+            '{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"Xin chào"}}]}\n'
+            'data: [DONE]\n\n'
+        )
+        assert parse_sse_response(body) == "Xin chào"
+
+    def test_returns_string_when_no_choices(self):
+        body = '{"id":"x","object":"chat.completion","choices":[]}'
+        assert parse_sse_response(body) == body

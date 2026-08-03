@@ -30,9 +30,8 @@ class StoryOrchestrator:
             "gender": data.get("gender", "unspecified"),
             "favoriteCharacter": data.get("favorite_character", ""),
         })
-
+        logger.warning(f"prompts : {prompts}")
         result = await self.pipeline.run(prompts)
-
         memories = []
         if result.success and not result.is_fallback:
             story_data = {"title": result.title, "content": result.content}

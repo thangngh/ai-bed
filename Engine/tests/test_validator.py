@@ -27,6 +27,31 @@ class TestOutputValidator:
         result = validator.validate_planner(data)
         assert result.valid is False
 
+    def test_planner_accepts_real_model_steps_shape(self):
+        """The opencode reasoning model returns steps/lesson instead of
+        story_structure/moral. Validation must normalize that shape and pass."""
+        validator = OutputValidator()
+        data = {
+            "title": "Bé An và chú thỏ dũng cảm",
+            "child_name": "An",
+            "theme": "động vật",
+            "lesson": "dũng cảm",
+            "steps": [
+                {"step": "mở đầu", "content": "Trời chiều êm ả"},
+                {"step": "bối cảnh", "content": "Bé An gặp chú thỏ"},
+                {"step": "xung đột", "content": "Thỏ con sợ"},
+                {"step": "kết thúc", "content": "Bé An giúp thỏ"},
+            ],
+            "interaction_points": [
+                {"position": "sau khi thỏ nói sợ", "question": "Con nghĩ sao?"}
+            ],
+        }
+        result = validator.validate_planner(data)
+        assert result.valid is True
+        structure = result.fixed_data.get("story_structure", {})
+        assert len(structure.get("sections", [])) >= 2
+        assert structure.get("moral") == "dũng cảm"
+
     def test_valid_writer_output(self):
         validator = OutputValidator()
         data = {

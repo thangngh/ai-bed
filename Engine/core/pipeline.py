@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from .validator import OutputValidator, ValidationResult
@@ -29,6 +30,54 @@ FALLBACK_STORY = {
     }],
     "word_count": 30,
 }
+
+
+def extract_json(raw: str) -> str:
+    """Pull the first balanced JSON object out of noisy LLM output.
+
+    Reasoning models (e.g. opencode via proxy) wrap their JSON answer in
+    markdown fences or append trailing prose. Return the trimmed object so
+    json.loads() succeeds instead of falling back.
+    """
+    if not raw:
+        return raw
+
+    text = raw.strip()
+    if text.startswith("```"):
+        # Strip a ```json ... ``` fence if present.
+        lines = text.splitlines()
+        if lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    depth = 0
+    start = -1
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text):
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                return text[start:i + 1]
+
+    return raw
 
 
 class StoryPipeline:
@@ -61,7 +110,13 @@ class StoryPipeline:
             writer_prompt = self._build_writer_prompt(outline)
             writer_raw = await self._call_retry(
                 {"system": "", "user": writer_prompt}, "writer", max_retries=2,
-                validator=lambda d: self._validate_writer_full(d)
+                validator=lambda d: self._validate_writer_full(d),
+                retry_hint=(
+                    "Your previous story was rejected because it is missing an "
+                    "'interaction' section. Add at least one content item with "
+                    '{"type": "interaction", "text": "...", "prompt": "...", "order": N} '
+                    "that asks the child a question by name."
+                ),
             )
             if not writer_raw:
                 return self._fallback("Writer failed after retries")
@@ -69,6 +124,7 @@ class StoryPipeline:
             story = json.loads(writer_raw)
 
             review = await self._review_story(story)
+
             if review.get("safety_verdict") == "REJECTED":
                 logger.warning("Story REJECTED, retrying writer...")
                 writer_raw = await self._call_retry(
@@ -95,12 +151,14 @@ class StoryPipeline:
             logger.error(f"Pipeline failed: {e}")
             return self._fallback(str(e))
 
-    async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator) -> str | None:
+    async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator, retry_hint: str = "") -> str | None:
         for attempt in range(max_retries + 1):
             try:
                 combined = "\n\n".join([prompts.get("system", ""), prompts.get("developer", ""), prompts.get("user", "")])
+                if attempt > 0 and retry_hint:
+                    combined = f"{combined}\n\n{retry_hint}"
                 raw = await self._call_llm(combined, stage)
-                data = json.loads(raw)
+                data = json.loads(extract_json(raw))
                 result = validator(data)
                 if result.valid:
                     return json.dumps(result.fixed_data or data)

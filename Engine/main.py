@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Optional
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -7,9 +8,9 @@ from pydantic import BaseModel
 import uvicorn
 
 from core.orchestrator import StoryOrchestrator
-
 app = FastAPI(title="Bedtime Story Engine")
 orchestrator = StoryOrchestrator()
+logger = logging.getLogger(__name__)
 
 
 @app.exception_handler(RequestValidationError)
@@ -56,6 +57,7 @@ async def health():
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
+    logger.warning(f"Provider generate")
     result = await orchestrator.generate(req.model_dump())
     return GenerateResponse(**result)
 
