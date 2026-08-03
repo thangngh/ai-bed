@@ -126,17 +126,28 @@ Pass that key to the Engine as `CUSTOM_LLM_API_KEY`. Do **not** disable
 `requireApiKey` to skip this; it opens the proxy to anything that can reach
 the port.
 
-*Step 2 — providers and combos.* A fresh replica has
-`GET /api/providers -> {"connections":[]}` and no combos, so
-`model: "opencode"` returns **404** even with a valid key. The `opencode`
-alias is a combo defined on the local instance, backed by that instance's own
-provider connections; it does not exist until you recreate both on the
-replica. This is a dashboard step (`http://localhost:20129`,
-`http://localhost:20130`) — it means registering real accounts, so it is left
-to a human rather than scripted.
+*Step 2 — the combo.* A fresh replica has no combos, so `model: "opencode"`
+returns **404** even with a valid key: the alias is operator-defined, not
+built in. It has to be recreated on each replica.
 
-Until step 2 is done the replicas serve their model catalog but cannot
-complete a request, and the balancer is not a usable Engine backend.
+**Both steps are scripted** — `POST /api/keys` and `POST /api/combos` are
+plain JSON endpoints, and the combo's backends need no credentials, so
+nothing about this requires the dashboard:
+
+```bash
+node scripts/bootstrap-9router.mjs \
+  --replicas http://localhost:20129,http://localhost:20130
+```
+
+It logs in, mints one API key per replica, creates the `opencode` combo, and
+then **proves the replica can complete a request** rather than trusting the
+healthcheck. Verified from clean volumes: container start to a successful
+completion in ~2.5s per replica, no manual step. Re-running is safe — it
+reuses an existing key and combo instead of duplicating them.
+
+Feed the printed `CUSTOM_LLM_API_KEY` to the Engine. Note 9router reveals a
+key's secret only at creation, so if you lose it, delete the key in the
+dashboard and re-run.
 
 The balancer uses `proxy_next_upstream error timeout http_429 http_502
 http_503`, so a replica that is down *or* rate-limited is skipped. Read
@@ -171,39 +182,40 @@ containers:
   `REPLICA_A_PROXY` / `REPLICA_B_PROXY`, or
 - distinct routable IPv6 addresses per container.
 
-**And the per-IP question turned out not to be the one that matters.**
-Inspecting the working local instance settles it:
+**The `opencode` alias is anonymous, so IP is the only identity in play.**
+This was checked directly rather than assumed:
 
 - `GET /api/combos` on `localhost:20128` shows `opencode` is a **user-defined
-  combo**, not a built-in anonymous passthrough. So is `gpt`, `claude`,
-  `tier-1`.
-- `GET /api/providers` shows what backs it: the user's own credentials —
-  an OpenRouter API key, several Gemini API keys, DeepSeek keys, and
-  Antigravity / gemini-cli OAuth accounts.
-- The `:free` models the combo routes to (`openrouter/...:free`) are
-  OpenRouter's free tier, which is rate-limited **per OpenRouter account**.
+  combo**, not a built-in model — it fans out over
+  `oc/deepseek-v4-flash-free`, `oc/nemotron-3-ultra-free` and
+  `oc/north-mini-code-free`. (That is also the direct explanation for the
+  2s–294s latency spread in §2: three different backends behind one name.)
+- Those `oc/` models need **no provider connection**. A replica whose
+  `GET /api/providers` returned `{"connections":[]}` completed
+  `oc/deepseek-v4-flash-free` in 3.6s. OpenCode Free is a passthrough to
+  opencode.ai/zen with no credential attached.
 
-So the quota follows the *account*, not the source IP and not the container.
-Two consequences:
-
-1. Replicas that share the same accounts add **no capacity**, regardless of
-   how their networking is arranged. This is the same conclusion the IP
-   measurement reached, but for a stronger reason — it holds even if you give
-   each replica its own egress IP.
-2. Capacity comes from adding **distinct upstream accounts**, which needs no
-   Docker replicas at all: 9router already fans out across multiple
-   connections of the same provider (the local instance has 6 Antigravity
-   accounts and 6 Gemini keys registered).
+So there is no account to key on: the only thing distinguishing one caller
+from another upstream is the source address — and the measurement above shows
+every replica shares one. **Replicas on a single Docker host are one client
+upstream. HA here buys availability, not throughput.**
 
 Replicas *are* distinct at the fingerprint level — each gets its own
 `MACHINE_ID_SALT` and `DATA_DIR`, and the machine IDs confirm it
-(`b60c14fe96dfe493` for A, `ad626d90b002c756` for B). That distinctness just
-does not buy anything when the upstream keys on the account.
+(`b60c14fe96dfe493` for A, `ad626d90b002c756` for B). But that fingerprint is
+9router's own bookkeeping; it is never sent upstream, so it cannot widen a
+quota.
 
-**Therefore: run HA for availability, scale accounts for throughput.**
+To actually add throughput you need distinct egress, per the list above —
+separate hosts, per-replica outbound proxies, or distinct routable IPv6.
+
+> Earlier revisions of this document concluded the quota was per-account,
+> based on the provider connections registered on the local instance. That was
+> wrong: those accounts back the *other* combos (`gpt`, `claude`, `tier-1`),
+> not `opencode`. The zero-connection completion above disproves it.
 
 `scripts/probe-9router-identity.mjs` remains available to re-test empirically
-if the provider mix changes, but it is no longer the deciding evidence.
+if the combo is ever repointed at credentialed backends.
 
 Confirm the shared-egress claim yourself with:
 
