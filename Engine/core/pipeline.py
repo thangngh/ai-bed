@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 from .validator import OutputValidator, ValidationResult
+from .cleanup import extract_json_block
 from .llm.router import LLMRouter
 from .prompts.registry import PromptRegistry
 
@@ -30,54 +31,6 @@ FALLBACK_STORY = {
     }],
     "word_count": 30,
 }
-
-
-def extract_json(raw: str) -> str:
-    """Pull the first balanced JSON object out of noisy LLM output.
-
-    Reasoning models (e.g. opencode via proxy) wrap their JSON answer in
-    markdown fences or append trailing prose. Return the trimmed object so
-    json.loads() succeeds instead of falling back.
-    """
-    if not raw:
-        return raw
-
-    text = raw.strip()
-    if text.startswith("```"):
-        # Strip a ```json ... ``` fence if present.
-        lines = text.splitlines()
-        if lines[0].lstrip().startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-
-    depth = 0
-    start = -1
-    in_string = False
-    escape = False
-    for i, ch in enumerate(text):
-        if escape:
-            escape = False
-            continue
-        if in_string:
-            if ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch == "{":
-            if depth == 0:
-                start = i
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0 and start >= 0:
-                return text[start:i + 1]
-
-    return raw
 
 
 class StoryPipeline:
@@ -158,7 +111,7 @@ class StoryPipeline:
                 if attempt > 0 and retry_hint:
                     combined = f"{combined}\n\n{retry_hint}"
                 raw = await self._call_llm(combined, stage)
-                data = json.loads(extract_json(raw))
+                data = extract_json_block(raw)
                 result = validator(data)
                 if result.valid:
                     return json.dumps(result.fixed_data or data)
@@ -195,7 +148,7 @@ class StoryPipeline:
         )
         raw = await self._call_llm(review_prompt, "reviewer")
         try:
-            return json.loads(raw)
+            return extract_json_block(raw)
         except Exception:
             return {"safety_verdict": "FLAGGED", "issues": [{"type": "format", "severity": "low", "detail": "Cannot parse review"}], "quality_score": 3}
 

@@ -51,3 +51,43 @@ class TestParseSseResponse:
     def test_returns_string_when_no_choices(self):
         body = '{"id":"x","object":"chat.completion","choices":[]}'
         assert parse_sse_response(body) == body
+
+    def test_joins_streamed_delta_frames(self):
+        # Some proxy models (e.g. the `gpt` alias) stream `delta` chunks
+        # instead of a single assembled `message`; the parts must be joined
+        # or the raw SSE body leaks through as story content.
+        body = (
+            'data: {"choices":[{"index":0,"delta":{"content":"Xin "}}]}\n\n'
+            'data: {"choices":[{"index":0,"delta":{"content":"chào"}}]}\n\n'
+            'data: [DONE]\n\n'
+        )
+        assert parse_sse_response(body) == "Xin chào"
+
+    def test_bare_response_key(self):
+        assert parse_sse_response('{"response": "hi"}') == "hi"
+
+
+def _mock_async_client(monkeypatch, handler):
+    """Make CustomClient.complete use httpx.MockTransport to avoid network."""
+    import httpx as _httpx
+
+    class Fake(_httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k, transport=_httpx.MockTransport(handler))
+
+    monkeypatch.setattr(_httpx, "AsyncClient", Fake)
+
+
+@pytest.mark.asyncio
+async def test_complete_returns_content_stripping_data_done(monkeypatch):
+    import httpx as _httpx
+    monkeypatch.setenv("CUSTOM_LLM_URL", "http://proxy/v1/chat/completions")
+    monkeypatch.setenv("CUSTOM_LLM_MODEL", "m")
+
+    body = '{"choices":[{"message":{"role":"assistant","content":"{\\"title\\":\\"Hi\\"}"}}]} data: [DONE]'
+
+    _mock_async_client(monkeypatch, lambda req: _httpx.Response(200, text=body))
+
+    client = CustomClient()
+    out = await client.complete("hi")
+    assert out == '{"title":"Hi"}'

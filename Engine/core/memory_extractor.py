@@ -9,7 +9,7 @@ class MemoryExtractor:
     def __init__(self, router: LLMRouter):
         self.router = router
 
-    def extract(self, story: dict, language: str, is_fallback: bool = False) -> list[dict]:
+    async def extract(self, story: dict, language: str, is_fallback: bool = False) -> list[dict]:
         if is_fallback:
             return []
 
@@ -22,8 +22,7 @@ class MemoryExtractor:
         )
 
         try:
-            import asyncio
-            raw = asyncio.run(self.router.complete(prompt, "memory_ext"))
+            raw = await self.router.complete(prompt, "memory_ext")
             data = json.loads(raw)
             memories = data.get("memories", [])
             filtered = [m for m in memories if m.get("confidence", 0) >= 0.3]

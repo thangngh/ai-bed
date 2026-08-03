@@ -1,5 +1,5 @@
 import pytest
-from core.pipeline import StoryPipeline, FALLBACK_STORY, extract_json
+from core.pipeline import StoryPipeline, FALLBACK_STORY
 from core.llm.client import BaseLLMClient
 
 
@@ -112,16 +112,29 @@ class TestStoryPipeline:
         assert "interaction" in writer_prompts[-1].lower()
 
 
-class TestExtractJson:
-    def test_extracts_plain_json(self):
-        assert extract_json('{"a": 1}') == '{"a": 1}'
 
-    def test_extracts_from_markdown_fence(self):
-        assert extract_json('```json\n{"a": 1}\n```') == '{"a": 1}'
+@pytest.mark.asyncio
+async def test_pipeline_accepts_dirty_json_responses():
+    router = MockRouter({
+        "planner": 'Here is the plan\n{"title": "Dirty", "story_structure": {"opening": "...", "sections": [{"order": 0, "type": "opening", "description": "..."}, {"order": 1, "type": "context", "description": "..."}], "moral": "good", "key_characters": ["An"]}} data: [DONE]',
+        "writer": '{"title": "Dirty", "content": [{"type": "opening", "text": "Xin chao ban nho\\n\\nHom nay chung ta co mot cau chuyen", "order": 0}, {"type": "context", "text": "Ngay xua co mot co be\\n\\nCo be song trong ngoi lang nho", "order": 1}, {"type": "conflict", "text": "Mot ngay no bien co xay ra\\n\\nCo be phai doi mat voi thu thach", "order": 2}, {"type": "interaction", "text": "Hoi", "prompt": "Con nghi?", "order": 3}, {"type": "resolution", "text": "Cuoi cung moi chuyen on thoa\\n\\nCo be hoc duoc bai hoc quy gia", "order": 4}], "word_count": 150} trailing junk',
+        "reviewer": '{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}',
+    })
+    pipeline = StoryPipeline(router)
+    result = await pipeline.run({})
+    assert result.success is True
+    assert result.title == "Dirty"
 
-    def test_extracts_with_trailing_prose(self):
-        raw = '{"a": 1}\n\nĐây là câu chuyện cho bé.'
-        assert extract_json(raw) == '{"a": 1}'
 
-    def test_returns_original_when_no_json(self):
-        assert extract_json('no json here') == 'no json here'
+@pytest.mark.asyncio
+async def test_pipeline_writer_interaction_section():
+    """Writer output with interaction section passes full validation."""
+    router = MockRouter({
+        "planner": '{"title":"Test","story_structure":{"opening":"..","sections":[{"type":"opening","description":".."},{"type":"interaction","description":".."}],"moral":"good","key_characters":["An"]}}',
+        "writer": '{"title":"Test","content":[{"type":"opening","text":"Xin chao ban nho\\n\\nHom nay chung ta co mot cau chuyen","order":0},{"type":"context","text":"Ngay xua co mot co be\\n\\nCo be song trong ngoi lang nho","order":1},{"type":"conflict","text":"Mot ngay no bien co xay ra\\n\\nCo be phai doi mat voi thu thach","order":2},{"type":"interaction","text":"An oi ban nghi sao?","prompt":"Con nghi sao?","order":3},{"type":"resolution","text":"Cuoi cung moi chuyen on thoa\\n\\nCo be hoc duoc bai hoc quy gia","order":4}],"word_count":150}',
+        "reviewer": '{"safety_verdict":"APPROVED","issues":[],"quality_score":4}',
+    })
+    pipeline = StoryPipeline(router)
+    result = await pipeline.run({})
+    assert result.success is True
+    assert result.title == "Test"

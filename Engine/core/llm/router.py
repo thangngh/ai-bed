@@ -4,6 +4,7 @@ from .client import BaseLLMClient
 from .openai_client import OpenAIClient, AllKeysExhausted
 from .gemini_client import GeminiClient
 from .custom_client import CustomClient
+from .openrouter_client import OpenRouterClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class LLMRouter:
         primary = os.getenv("PRIMARY_LLM", "").strip()
         fallback = os.getenv("FALLBACK_LLM", "").strip()
         custom_url = os.getenv("CUSTOM_LLM_URL", "").strip()
+        openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
 
         order = []
 
@@ -43,6 +45,13 @@ class LLMRouter:
                 order.append("custom")
             except ValueError as e:
                 logger.warning(f"Custom LLM not available: {e}")
+
+        if openrouter_key:
+            try:
+                self.providers["openrouter"] = OpenRouterClient()
+                order.append("openrouter")
+            except ValueError as e:
+                logger.warning(f"OpenRouter not available: {e}")
 
         self.fallback_order = order
 

@@ -18,6 +18,26 @@ DEFAULT_MAX_TOKENS = 4096
 DEFAULT_TIMEOUT_SECONDS = 300
 
 
+def _content_from_payload(parsed: dict) -> str:
+    """Pull assistant text out of a decoded completion object.
+
+    Handles the OpenAI `choices[].message.content` shape, the streaming
+    `choices[].delta.content` shape, and the bare `{"response": ...}` shape
+    some proxies use.
+    """
+    choices = parsed.get("choices")
+    if choices:
+        choice = choices[0]
+        message = choice.get("message") or choice.get("delta") or {}
+        content = message.get("content")
+        if content:
+            return content
+    response = parsed.get("response")
+    if response:
+        return response
+    return ""
+
+
 def parse_sse_response(body: str) -> str:
     """Extract assistant content from a proxy response body.
 
@@ -37,16 +57,25 @@ def parse_sse_response(body: str) -> str:
         if line.startswith("data: ") and line.strip() != "data: [DONE]"
     ]
     if frames:
-        # SSE can be one complete JSON per frame or split across frames;
-        # the last non-DONE frame is the assembled chunk in the proxy's case.
-        for frame in reversed(frames):
+        # SSE can be one complete JSON per frame (the proxy assembles the
+        # answer itself) or a stream of `delta` chunks that must be joined.
+        decoded = []
+        for frame in frames:
             try:
-                parsed = json.loads(frame)
-                content = parsed["choices"][0]["message"]["content"]
-                if content:
-                    return content
-            except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                decoded.append(json.loads(frame))
+            except json.JSONDecodeError:
                 continue
+
+        # Prefer a frame that already carries the whole message.
+        for parsed in reversed(decoded):
+            choices = parsed.get("choices") or [{}]
+            if (choices[0].get("message") or {}).get("content"):
+                return choices[0]["message"]["content"]
+
+        # Otherwise concatenate the streamed deltas in arrival order.
+        streamed = "".join(_content_from_payload(parsed) for parsed in decoded)
+        if streamed:
+            return streamed
 
     # 2. Plain JSON body, possibly followed by trailing SSE markers such as
     #    "data: [DONE]" (the proxy emits one JSON object then "data: [DONE]").
@@ -77,20 +106,20 @@ def parse_sse_response(body: str) -> str:
                 obj = body[start:i + 1]
                 try:
                     parsed = json.loads(obj)
-                    return parsed["choices"][0]["message"]["content"]
-                except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                except json.JSONDecodeError:
                     return body
+                return _content_from_payload(parsed) or body
 
     try:
         parsed = json.loads(body)
-        return parsed["choices"][0]["message"]["content"]
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+    except json.JSONDecodeError:
         return body
+    return _content_from_payload(parsed) or body
 
 
 class CustomClient(BaseLLMClient):
     def __init__(self):
-        self.api_url = os.getenv("CUSTOM_LLM_URL", "http://localhost:20128")
+        self.api_url = os.getenv("CUSTOM_LLM_URL", "")
         self.api_key = os.getenv("CUSTOM_LLM_API_KEY", "")
         self.model = os.getenv("CUSTOM_LLM_MODEL", "opencode")
 
