@@ -101,6 +101,18 @@ replicas behind an nginx round-robin balancer and repoint the Engine at it:
 docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml up -d
 ```
 
+Verified: both replicas come up healthy, and the balancer starts once they
+are. The balancer publishes on host port **20127**, not 20128 — a locally
+installed 9router owns 20128, and binding it in Docker silently displaces it
+(this happened during testing; the local proxy came back as soon as the
+balancer was stopped). Override with `NINEROUTER_LB_PORT`.
+
+**Onboarding is required before the replicas serve traffic.** A fresh
+container has no provider configured and answers `401` on `/v1/models`. Open
+each replica's dashboard (`http://localhost:20129`, `http://localhost:20130`),
+log in with `INITIAL_PASSWORD` (default `123456`), and add the OpenCode Free
+provider. Until then the balancer will return 401 for everything.
+
 The balancer uses `proxy_next_upstream error timeout http_429 http_502
 http_503`, so a replica that is down *or* rate-limited is skipped. Read
 timeout is 420s to match the slowest observed generation; `proxy_buffering` is
@@ -111,14 +123,19 @@ throughput is a separate question — see below.
 
 ## 4. Does HA by Docker internal IP count as separate connections?
 
-**No, not on a single host.** This part is settled by how Docker networking
-works, independent of anything opencode does:
+**No, not on a single host — measured, not assumed.** Both replicas were
+started and asked what the outside world sees as their source address:
 
-Containers on a bridge network have private addresses (`172.x.x.x`) that are
-**never visible to the upstream**. All egress is NATed through the host's
-single public IP. `opencode.ai/zen` sees one source address no matter how many
-replicas you run. So **if the quota is scoped per IP, three replicas on one
-Docker host count as one client, not three.**
+```
+$ docker exec ai-bedtime-9router-a-1 wget -qO- https://ifconfig.me   -> 1.55.45.166
+$ docker exec ai-bedtime-9router-b-1 wget -qO- https://ifconfig.me   -> 1.55.45.166
+```
+
+Identical. Containers on a bridge network have private addresses (`172.x.x.x`)
+that are **never visible to the upstream**; all egress is NATed through the
+host's single public IP. `opencode.ai/zen` sees one source address no matter
+how many replicas run. So **if the quota is scoped per IP, three replicas on
+one Docker host count as one client, not three.**
 
 To actually present distinct IPs you need distinct egress paths, not distinct
 containers:

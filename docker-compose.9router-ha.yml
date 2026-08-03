@@ -71,8 +71,10 @@ services:
 
   9router-lb:
     image: nginx:1.27-alpine
+    # Deliberately NOT 20128: that is where a locally-installed 9router
+    # listens, and binding it here silently displaces it.
     ports:
-      - "20128:20128"
+      - "${NINEROUTER_LB_PORT:-20127}:20128"
     volumes:
       - ./deploy/9router-lb.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -84,6 +86,8 @@ services:
 
   engine:
     environment:
+      # Container-to-container, so this stays 20128 regardless of the host
+      # port the balancer is published on.
       CUSTOM_LLM_URL: http://9router-lb:20128/v1/chat/completions
       CUSTOM_LLM_MODEL: ${CUSTOM_LLM_MODEL:-opencode}
     depends_on:
