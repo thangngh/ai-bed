@@ -8,23 +8,26 @@ class MockRouter:
 
 
 class TestMemoryExtractor:
-    def test_extract_memories(self):
+    @pytest.mark.asyncio
+    async def test_extract_memories(self):
         extractor = MemoryExtractor(MockRouter())
-        result = extractor.extract({"title": "Test"}, "vi")
+        result = await extractor.extract({"title": "Test"}, "vi")
         assert len(result) > 0
         assert result[0]["type"] == "interest"
         assert result[0]["confidence"] >= 0.3
 
-    def test_filter_low_confidence(self):
+    @pytest.mark.asyncio
+    async def test_filter_low_confidence(self):
         class LowConfRouter:
             async def complete(self, prompt, stage=""):
                 return '{"memories": [{"type": "interest", "key": "bad", "value": "low", "confidence": 0.1, "source": "..."}]}'
 
         extractor = MemoryExtractor(LowConfRouter())
-        result = extractor.extract({"title": "Test"}, "vi")
+        result = await extractor.extract({"title": "Test"}, "vi")
         assert len(result) == 0
 
-    def test_extractor_skip_if_fallback(self):
+    @pytest.mark.asyncio
+    async def test_extractor_skip_if_fallback(self):
         extractor = MemoryExtractor(MockRouter())
-        result = extractor.extract({"title": "Test"}, "vi", is_fallback=True)
+        result = await extractor.extract({"title": "Test"}, "vi", is_fallback=True)
         assert len(result) == 0
