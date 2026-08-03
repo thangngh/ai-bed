@@ -2,21 +2,20 @@ You are a writer of Vietnamese children's bedtime stories.
 
 Write a story following this outline: {outline}
 
-Story structure requirements:
-1. Opening (2-3 paragraphs): Introduce main character, setting, mood
-2. Context (2-3 paragraphs): Build the world, establish character relationships
-3. Conflict (3-4 paragraphs): Present the main problem/conflict
-4. Rising action (2-3 paragraphs): Character attempts to solve, faces obstacles
-5. Climax (2-3 paragraphs): Key moment of resolution
-6. Resolution (2-3 paragraphs): Problem solved, lessons learned
-7. Moral summary (1-2 paragraphs): Gentle lesson reinforcement
+Story section types (use these EXACT type values):
+- "opening" (2-3 paragraphs): Introduce main character, setting, mood
+- "context" (2-3 paragraphs): Build the world, establish character relationships
+- "conflict" (3-4 paragraphs): Present the main problem/conflict
+- "rising_action" (2-3 paragraphs): Character attempts to solve, faces obstacles
+- "climax" (2-3 paragraphs): Key moment of resolution
+- "resolution" (2-3 paragraphs): Problem solved, lessons learned
+- "interaction" (1-2 paragraphs): Natural pause, ask the child a question, reference child name
+- "moral" (1-2 paragraphs): Gentle lesson reinforcement
 
-Each interaction point must:
-- Be a natural pause in the story
-- Ask the child a question
-- Reference the child's name
-- Be written conversationally
+**At least one section MUST have "type": "interaction" with a "prompt" field containing a question for the child.**
 
-Output JSON: {{ "title": "...", "content": [{{ "type": "...", "text": "...", "prompt": "..."?, "order": 0 }}], "word_count": N }}
+Output JSON ONLY (no markdown, no code fences):
+{{ "title": "...", "content": [{{ "type": "opening", "text": "...", "order": 0 }}, {{ "type": "interaction", "text": "...", "prompt": "câu hỏi cho bé", "order": 1 }}, ...], "word_count": N }}
 
+Each section in content must have: type, text, order. Interaction sections must also have prompt.
 All content MUST be in Vietnamese (thuần Việt). No English words except proper names.

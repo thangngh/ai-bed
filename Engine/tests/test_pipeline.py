@@ -54,3 +54,17 @@ async def test_pipeline_accepts_dirty_json_responses():
     result = await pipeline.run({})
     assert result.success is True
     assert result.title == "Dirty"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_writer_interaction_section():
+    """Writer output with interaction section passes full validation."""
+    router = MockRouter({
+        "planner": '{"title":"Test","story_structure":{"opening":"..","sections":[{"type":"opening","description":".."},{"type":"interaction","description":".."}],"moral":"good","key_characters":["An"]}}',
+        "writer": '{"title":"Test","content":[{"type":"opening","text":"Xin chao ban nho\\n\\nHom nay chung ta co mot cau chuyen","order":0},{"type":"context","text":"Ngay xua co mot co be\\n\\nCo be song trong ngoi lang nho","order":1},{"type":"conflict","text":"Mot ngay no bien co xay ra\\n\\nCo be phai doi mat voi thu thach","order":2},{"type":"interaction","text":"An oi ban nghi sao?","prompt":"Con nghi sao?","order":3},{"type":"resolution","text":"Cuoi cung moi chuyen on thoa\\n\\nCo be hoc duoc bai hoc quy gia","order":4}],"word_count":150}',
+        "reviewer": '{"safety_verdict":"APPROVED","issues":[],"quality_score":4}',
+    })
+    pipeline = StoryPipeline(router)
+    result = await pipeline.run({})
+    assert result.success is True
+    assert result.title == "Test"
