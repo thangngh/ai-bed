@@ -1,0 +1,94 @@
+# 9router HA layer for the Engine.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml up -d
+#
+# Runs N 9router replicas behind an nginx round-robin load balancer, and
+# points the Engine at the balancer instead of a single proxy.
+#
+# READ THIS BEFORE ASSUMING IT RAISES YOUR QUOTA
+# ----------------------------------------------
+# 9router's "OpenCode Free" provider is a passthrough to opencode.ai/zen.
+# Replicas here share the host's network namespace for egress: every
+# container NATs out through the host's single public IP. opencode.ai never
+# sees the 172.x container addresses. So if the upstream quota is scoped per
+# IP, N replicas on one host count as ONE client, not N.
+#
+# Each replica does get its own DATA_DIR (separate SQLite, separate accounts)
+# and its own MACHINE_ID_SALT, so replicas are distinct if the upstream
+# scopes by account or machine fingerprint instead. Which one applies is not
+# documented upstream — run scripts/probe-9router-identity.mjs to find out
+# empirically before relying on this for capacity.
+#
+# What this compose file IS good for regardless: removing 9router as a single
+# point of failure, and surviving one replica hitting its own limit.
+
+services:
+  9router-a:
+    image: decolua/9router:latest
+    # Exposed directly so scripts/probe-9router-identity.mjs can address a
+    # single replica; the Engine talks to the balancer, not to these.
+    ports:
+      - "20129:20128"
+    environment:
+      DATA_DIR: /app/data
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+      MACHINE_ID_SALT: replica-a
+      # Give a replica its own egress IP by pointing it at a distinct
+      # outbound proxy. Without this, see the note above.
+      HTTP_PROXY: ${REPLICA_A_PROXY:-}
+      HTTPS_PROXY: ${REPLICA_A_PROXY:-}
+    volumes:
+      - 9router-a-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:20128/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  9router-b:
+    image: decolua/9router:latest
+    ports:
+      - "20130:20128"
+    environment:
+      DATA_DIR: /app/data
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+      MACHINE_ID_SALT: replica-b
+      HTTP_PROXY: ${REPLICA_B_PROXY:-}
+      HTTPS_PROXY: ${REPLICA_B_PROXY:-}
+    volumes:
+      - 9router-b-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:20128/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  9router-lb:
+    image: nginx:1.27-alpine
+    ports:
+      - "20128:20128"
+    volumes:
+      - ./deploy/9router-lb.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      9router-a:
+        condition: service_healthy
+      9router-b:
+        condition: service_healthy
+    restart: unless-stopped
+
+  engine:
+    environment:
+      CUSTOM_LLM_URL: http://9router-lb:20128/v1/chat/completions
+      CUSTOM_LLM_MODEL: ${CUSTOM_LLM_MODEL:-opencode}
+    depends_on:
+      - 9router-lb
+
+volumes:
+  9router-a-data:
+  9router-b-data:

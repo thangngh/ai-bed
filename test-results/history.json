@@ -1,0 +1,22 @@
+[
+  {
+    "startedAt": "2026-08-03T14:51:58.153Z",
+    "file": "integration-2026-08-03T14-51-58-153Z.json",
+    "runs": 4,
+    "concurrency": 2,
+    "fallbackRate": null,
+    "p50Ms": 301352,
+    "p95Ms": 301955,
+    "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-03T15:01:33.950Z",
+    "file": "integration-2026-08-03T15-01-33-950Z.json",
+    "runs": 4,
+    "concurrency": 2,
+    "fallbackRate": 1,
+    "p50Ms": 301853,
+    "p95Ms": 329878,
+    "mvpPass": false
+  }
+]
