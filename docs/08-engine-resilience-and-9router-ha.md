@@ -107,11 +107,36 @@ installed 9router owns 20128, and binding it in Docker silently displaces it
 (this happened during testing; the local proxy came back as soon as the
 balancer was stopped). Override with `NINEROUTER_LB_PORT`.
 
-**Onboarding is required before the replicas serve traffic.** A fresh
-container has no provider configured and answers `401` on `/v1/models`. Open
-each replica's dashboard (`http://localhost:20129`, `http://localhost:20130`),
-log in with `INITIAL_PASSWORD` (default `123456`), and add the OpenCode Free
-provider. Until then the balancer will return 401 for everything.
+**Onboarding is required before the replicas serve traffic**, in two steps —
+both were hit during testing and neither is optional.
+
+*Step 1 — credentials.* A fresh container answers `401` on `/v1/*`. The
+compose file sets `INITIAL_PASSWORD` (default `aibedtime123`, override with
+`NINEROUTER_PASSWORD`) because without it the container serves nothing at all.
+Note the healthcheck probes `/`, not `/v1/models`, so **`healthy` means the
+process is up — not that the replica can answer a request.** Judge readiness
+by a real completion, never by `docker ps`. Then mint a key per replica:
+
+```bash
+# log in, then POST /api/keys {"name":"ai-bedtime-engine"}
+# -> {"key":"sk-...","machineId":"..."}
+```
+
+Pass that key to the Engine as `CUSTOM_LLM_API_KEY`. Do **not** disable
+`requireApiKey` to skip this; it opens the proxy to anything that can reach
+the port.
+
+*Step 2 — providers and combos.* A fresh replica has
+`GET /api/providers -> {"connections":[]}` and no combos, so
+`model: "opencode"` returns **404** even with a valid key. The `opencode`
+alias is a combo defined on the local instance, backed by that instance's own
+provider connections; it does not exist until you recreate both on the
+replica. This is a dashboard step (`http://localhost:20129`,
+`http://localhost:20130`) — it means registering real accounts, so it is left
+to a human rather than scripted.
+
+Until step 2 is done the replicas serve their model catalog but cannot
+complete a request, and the balancer is not a usable Engine backend.
 
 The balancer uses `proxy_next_upstream error timeout http_429 http_502
 http_503`, so a replica that is down *or* rate-limited is skipped. Read
@@ -146,37 +171,39 @@ containers:
   `REPLICA_A_PROXY` / `REPLICA_B_PROXY`, or
 - distinct routable IPv6 addresses per container.
 
-**But per-IP may not be the scope that matters.** The quota could equally be
-per account or per machine fingerprint — 9router hashes a machine ID with
-`MACHINE_ID_SALT`, and each replica in the compose file gets its own salt and
-its own `DATA_DIR` (separate SQLite, separate accounts). If the upstream keys
-on that instead, replicas *are* distinct and HA does add capacity.
+**And the per-IP question turned out not to be the one that matters.**
+Inspecting the working local instance settles it:
 
-**Which one applies is not documented and cannot be settled from the docs.**
-opencode's Zen page states no rate limits at all, and when users asked
-directly how limits are scoped per IP, the issue was closed as not planned
-with no answer ([issue #16844](https://github.com/anomalyco/opencode/issues/16844)).
-Treating it as per-replica without evidence risks silently building capacity
-planning on an assumption the upstream can change at will.
+- `GET /api/combos` on `localhost:20128` shows `opencode` is a **user-defined
+  combo**, not a built-in anonymous passthrough. So is `gpt`, `claude`,
+  `tier-1`.
+- `GET /api/providers` shows what backs it: the user's own credentials —
+  an OpenRouter API key, several Gemini API keys, DeepSeek keys, and
+  Antigravity / gemini-cli OAuth accounts.
+- The `:free` models the combo routes to (`openrouter/...:free`) are
+  OpenRouter's free tier, which is rate-limited **per OpenRouter account**.
 
-So measure it:
+So the quota follows the *account*, not the source IP and not the container.
+Two consequences:
 
-```bash
-# point at the replicas directly, bypassing the balancer
-node scripts/probe-9router-identity.mjs \
-  --replicas http://localhost:20129,http://localhost:20130
-```
+1. Replicas that share the same accounts add **no capacity**, regardless of
+   how their networking is arranged. This is the same conclusion the IP
+   measurement reached, but for a stronger reason — it holds even if you give
+   each replica its own egress IP.
+2. Capacity comes from adding **distinct upstream accounts**, which needs no
+   Docker replicas at all: 9router already fans out across multiple
+   connections of the same provider (the local instance has 6 Antigravity
+   accounts and 6 Gemini keys registered).
 
-It drives replica A until the upstream reports the free quota is spent, then
-immediately calls replica B:
+Replicas *are* distinct at the fingerprint level — each gets its own
+`MACHINE_ID_SALT` and `DATA_DIR`, and the machine IDs confirm it
+(`b60c14fe96dfe493` for A, `ad626d90b002c756` for B). That distinctness just
+does not buy anything when the upstream keys on the account.
 
-- **B also exhausted** → quota is shared; adding replicas on this host buys
-  resilience only, not throughput. Scale out to separate egress IPs.
-- **B still works** → quota follows the replica; HA adds real capacity.
+**Therefore: run HA for availability, scale accounts for throughput.**
 
-The verdict and the full request log are saved to
-`test-results/9router-identity-<timestamp>.json`. The replicas are already
-published on `20129` and `20130` for exactly this purpose.
+`scripts/probe-9router-identity.mjs` remains available to re-test empirically
+if the provider mix changes, but it is no longer the deciding evidence.
 
 Confirm the shared-egress claim yourself with:
 
