@@ -18,5 +18,15 @@
     "p50Ms": 301853,
     "p95Ms": 329878,
     "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-03T15:48:52.432Z",
+    "file": "integration-2026-08-03T15-48-52-432Z.json",
+    "runs": 4,
+    "concurrency": 2,
+    "fallbackRate": 1,
+    "p50Ms": 285775,
+    "p95Ms": 301390,
+    "mvpPass": false
   }
 ]
