@@ -1,4 +1,5 @@
 import pytest
+from core.llm.client import EmptyCompletionError
 from core.llm.custom_client import CustomClient
 from core.llm.custom_client import parse_sse_response, DEFAULT_MAX_TOKENS, DEFAULT_TIMEOUT_SECONDS
 
@@ -48,9 +49,16 @@ class TestParseSseResponse:
         )
         assert parse_sse_response(body) == "Xin chào"
 
-    def test_returns_string_when_no_choices(self):
+    def test_returns_empty_when_no_choices(self):
+        # A well-formed envelope with no content yields "", not the envelope.
+        # Returning the body is how a 13KB raw SSE response once became the
+        # story text; the caller now raises EmptyCompletionError instead.
         body = '{"id":"x","object":"chat.completion","choices":[]}'
-        assert parse_sse_response(body) == body
+        assert parse_sse_response(body) == ""
+
+    def test_returns_body_for_non_json(self):
+        # Plain-text answers are legitimate content and must survive.
+        assert parse_sse_response("just some text") == "just some text"
 
     def test_joins_streamed_delta_frames(self):
         # Some proxy models (e.g. the `gpt` alias) stream `delta` chunks
@@ -91,3 +99,83 @@ async def test_complete_returns_content_stripping_data_done(monkeypatch):
     client = CustomClient()
     out = await client.complete("hi")
     assert out == '{"title":"Hi"}'
+
+
+@pytest.mark.asyncio
+async def test_complete_raises_on_empty_content(monkeypatch):
+    # A 200 with no usable text must not be reported as success: the router
+    # would have no reason to try the next provider, and the pipeline would
+    # spend a retry parsing nothing. One measured writer call took 294s to
+    # return an empty body and was retried instead of failed over.
+    import httpx as _httpx
+    monkeypatch.setenv("CUSTOM_LLM_URL", "http://proxy/v1/chat/completions")
+    monkeypatch.setenv("CUSTOM_LLM_MODEL", "m")
+
+    body = '{"choices":[{"message":{"role":"assistant","content":""}}]}'
+    _mock_async_client(monkeypatch, lambda req: _httpx.Response(200, text=body))
+
+    client = CustomClient()
+    with pytest.raises(EmptyCompletionError):
+        await client.complete("hi", stage="writer")
+
+
+@pytest.mark.asyncio
+async def test_complete_raises_on_whitespace_only_content(monkeypatch):
+    import httpx as _httpx
+    monkeypatch.setenv("CUSTOM_LLM_URL", "http://proxy/v1/chat/completions")
+    monkeypatch.setenv("CUSTOM_LLM_MODEL", "m")
+
+    body = '{"choices":[{"message":{"role":"assistant","content":"   \\n  "}}]}'
+    _mock_async_client(monkeypatch, lambda req: _httpx.Response(200, text=body))
+
+    with pytest.raises(EmptyCompletionError):
+        await CustomClient().complete("hi")
+
+
+class TestModelAndTuning:
+    def test_default_model_is_a_concrete_backend(self, monkeypatch):
+        # Not `opencode`: that is a 9router combo that round-robins over
+        # backends measured at 5.9s, 7.2s and 40.7s, one of which ignored the
+        # Vietnamese-only instruction. A default must be predictable.
+        monkeypatch.setenv("CUSTOM_LLM_URL", "http://proxy/v1/chat/completions")
+        monkeypatch.delenv("CUSTOM_LLM_MODEL", raising=False)
+        assert CustomClient().model != "opencode"
+
+    def test_custom_tuning_env_wins_over_openai_names(self, monkeypatch):
+        import httpx as _httpx
+        monkeypatch.setenv("CUSTOM_LLM_URL", "http://proxy/v1/chat/completions")
+        monkeypatch.setenv("OPENAI_MAX_TOKENS", "1024")
+        monkeypatch.setenv("CUSTOM_LLM_MAX_TOKENS", "4096")
+
+        seen = {}
+
+        def handler(request):
+            import json as _json
+            seen.update(_json.loads(request.content))
+            return _httpx.Response(200, text='{"choices":[{"message":{"content":"ok"}}]}')
+
+        _mock_async_client(monkeypatch, handler)
+
+        import asyncio
+        asyncio.run(CustomClient().complete("hi"))
+        assert seen["max_tokens"] == 4096
+
+    def test_falls_back_to_openai_names(self, monkeypatch):
+        # Deployments that only set the old OPENAI_* names keep working.
+        import httpx as _httpx
+        monkeypatch.setenv("CUSTOM_LLM_URL", "http://proxy/v1/chat/completions")
+        monkeypatch.delenv("CUSTOM_LLM_MAX_TOKENS", raising=False)
+        monkeypatch.setenv("OPENAI_MAX_TOKENS", "2048")
+
+        seen = {}
+
+        def handler(request):
+            import json as _json
+            seen.update(_json.loads(request.content))
+            return _httpx.Response(200, text='{"choices":[{"message":{"content":"ok"}}]}')
+
+        _mock_async_client(monkeypatch, handler)
+
+        import asyncio
+        asyncio.run(CustomClient().complete("hi"))
+        assert seen["max_tokens"] == 2048

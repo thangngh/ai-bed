@@ -1,6 +1,19 @@
 # Spec: make the MVP return a story
 
-Status: draft, 2026-08-03. Written against measurements in
+**Status: implemented and verified 2026-08-04. All six sections landed; the
+definition of done is met.**
+
+| | Before | After |
+|---|---|---|
+| Usable stories | 0/10 | **10/10** |
+| p95 latency | 301s | **34.0s** |
+| 502s | 9 | **0** |
+| MVP criteria | 1/4 | **4/4 PASS** |
+
+Verification run: `test-results/integration-2026-08-03T17-17-45-189Z.json`.
+
+One finding changed the plan during implementation — see §4, which now pins an
+`ag/` backend rather than an `oc/` one. Written against measurements in
 [08-engine-resilience-and-9router-ha.md](./08-engine-resilience-and-9router-ha.md)
 and `test-results/history.json`.
 
@@ -122,11 +135,33 @@ A 7× latency spread and non-reproducible quality, from one model name. This
 is the single largest source of the variance in §0, and no amount of timeout
 tuning compensates for it.
 
-**Change.** Pin `CUSTOM_LLM_MODEL=oc/deepseek-v4-flash-free`. Keep the combo
-only as a manual fallback.
+**What implementation found.** Pinning the fastest combo member was not
+enough — **the entire `oc/` free tier cannot do this job at all.** They are
+reasoning models that spend the whole token budget deliberating and then emit
+nothing:
 
-**Acceptance.** Ten consecutive generations all report the same backend in
-`model`, and none contain a non-Vietnamese child name.
+```
+{"choices":[{"finish_reason":"length",
+  "message":{"content":"","reasoning_content":"The user is asking me to write a short story..."}}]}
+```
+
+Measured on all three backends at both 4096 and 16000 `max_tokens` — six
+combinations, **zero stories**. Raising the budget does not help; the
+reasoning simply expands to fill it. This is the true cause of the empty
+writer responses in §3, and it is why the first post-fix run still returned
+10/10 fallbacks even with the budget and timeout work in place.
+
+The other credentialed backends on the local proxy were checked too:
+`openrouter/*` returns 401 (expired key) and `ds/deepseek-v4-flash` returns
+402 (no credit).
+
+**Change.** Pin `CUSTOM_LLM_MODEL=ag/gemini-3-flash-agent` — measured 4.6-5.9s
+for a complete Vietnamese story JSON. It answers as SSE `delta` frames, which
+`parse_sse_response` already joins. Note `ag/` is Antigravity, so it needs an
+account connected in 9router; it is not anonymous like `oc/`.
+
+**Acceptance — met.** Ten consecutive generations produced ten Vietnamese
+stories, p95 34.0s, no fallbacks.
 
 ---
 
@@ -192,13 +227,26 @@ legible while tuning the budget.
 Run `node scripts/integration-test.mjs --runs 10 --concurrency 2` and require:
 
 - `mvpPass: true` — all four existing criteria green;
-- **p95 < 60s** (currently 301s);
-- **≥8/10 usable stories**, i.e. fallback rate ≤ 0.2 (currently 1.0);
+- **p95 < 60s**;
+- **≥8/10 usable stories**, i.e. fallback rate ≤ 0.2;
 - zero `502`s.
 
-The runner already records every one of these to
+The runner records every one of these to
 `test-results/integration-<timestamp>.json` and appends to `history.json`, so
 progress is comparable run over run.
+
+**Result: all four met.** `history.json` shows the progression:
+
+| run | usable | p95 | note |
+|---|---|---|---|
+| before | 0/4 | 301s | 502s at undici's 300s ceiling |
+| §1-§6 with an `oc/` model | 0/10 | 51s | no 502s, but the writer returned empty |
+| after switching to `ag/` | **10/10** | **34.0s** | green |
+
+The middle row is worth keeping. The timeout and budget work was correct and
+necessary — it removed every 502 and made all ten requests answerable — and on
+its own it still produced zero stories. Neither half would have been enough
+alone.
 
 ## Explicitly out of scope
 

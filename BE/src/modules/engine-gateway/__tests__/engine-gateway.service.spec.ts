@@ -1,6 +1,19 @@
+// The service calls undici's fetch, not the global one -- an Agent from this
+// package is rejected by Node's built-in fetch. Mock the module, not `global`.
+const agentOptions: unknown[] = [];
+jest.mock('undici', () => ({
+  Agent: class {
+    constructor(opts: unknown) {
+      agentOptions.push(opts);
+    }
+  },
+  fetch: jest.fn(),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { HttpException } from '@nestjs/common';
+import { fetch as undiciFetch } from 'undici';
 import { EngineGatewayService } from '../engine-gateway.service';
 import { GenerateDto } from '../dto/generate-story.dto';
 
@@ -52,12 +65,30 @@ describe('EngineGatewayService contract', () => {
       ],
     }).compile();
     service = moduleRef.get(EngineGatewayService);
-    fetchMock = jest.fn();
-    (global as any).fetch = fetchMock;
+    fetchMock = undiciFetch as unknown as jest.Mock;
+    fetchMock.mockReset();
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it('disables undici\'s own timeouts so ENGINE_TIMEOUT_MS is the only deadline', () => {
+    // undici applies a 300s headersTimeout on top of the AbortController and
+    // surfaces it as a plain TypeError, not an AbortError -- which silently
+    // capped ENGINE_TIMEOUT_MS at 300s and reported real timeouts as generic
+    // ENGINE_ERROR 502s (measured at exactly 301.3s against a 420s setting).
+    expect(agentOptions).toContainEqual({ headersTimeout: 0, bodyTimeout: 0 });
+  });
+
+  it('reports the configured timeout, not a hardcoded one', async () => {
+    const abortErr: any = new Error('aborted');
+    abortErr.name = 'AbortError';
+    fetchMock.mockRejectedValue(abortErr);
+
+    await expect(service.generate(dto)).rejects.toMatchObject({
+      response: { error: { message: 'Engine timeout after 25s' } },
+    });
   });
 
   it('sends snake_case payload to Engine', async () => {

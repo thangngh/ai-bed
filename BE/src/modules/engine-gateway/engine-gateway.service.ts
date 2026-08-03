@@ -1,12 +1,39 @@
 import { Injectable, HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+// undici's own fetch, not the global one. A dispatcher built from this
+// package is rejected by Node's built-in fetch ("invalid onRequestStart
+// method") because the two are different copies of undici; pairing the Agent
+// with the fetch from the same package is what makes it work.
+import { Agent, fetch as undiciFetch, RequestInit as UndiciRequestInit } from 'undici';
 import { GenerateDto } from './dto/generate-story.dto';
 import { EngineResponse } from './dto/engine-response.dto';
+
+/** The Engine's snake_case /generate response, before mapping to EngineResponse. */
+interface EnginePayload {
+  request_id?: string;
+  title: string;
+  content: unknown[];
+  safety_status?: EngineResponse['safetyStatus'];
+  memories?: unknown[];
+  llm_calls?: number;
+  latency_ms?: number;
+  word_count?: number;
+  is_fallback?: boolean;
+}
 
 @Injectable()
 export class EngineGatewayService {
   private baseUrl: string;
   private timeoutMs: number;
+  /**
+   * Node's `fetch` applies undici's own 300s `headersTimeout` on top of our
+   * AbortController, and it surfaces as a plain `TypeError`, not an
+   * `AbortError`. That silently capped ENGINE_TIMEOUT_MS at 300s and made
+   * genuine timeouts arrive as generic ENGINE_ERROR 502s -- measured as
+   * failures at exactly 301.3s while the configured timeout was 420s.
+   * Disabling both timeouts leaves the AbortController as the only deadline.
+   */
+  private dispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
 
   constructor(private config: ConfigService) {
     this.baseUrl = this.config.get('engine.baseUrl', 'http://localhost:8000');
@@ -18,22 +45,25 @@ export class EngineGatewayService {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await fetch(`${this.baseUrl}/generate`, {
+      const response = await undiciFetch(`${this.baseUrl}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': dto.tenantId },
         body: JSON.stringify(this.toEnginePayload(dto)),
         signal: controller.signal,
-      });
+        dispatcher: this.dispatcher,
+      } as UndiciRequestInit);
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
+        const err = (await response.json().catch(() => ({}))) as { error?: string };
         throw new HttpException(
           { error: { code: 'ENGINE_ERROR', message: err.error || 'Engine request failed' } },
           response.status,
         );
       }
 
-      const data = await response.json();
+      // undici types `json()` as `unknown` rather than `any`, so the shape has
+      // to be stated explicitly.
+      const data = (await response.json()) as EnginePayload;
       return {
         requestId: data.request_id || '',
         title: data.title,
@@ -50,7 +80,12 @@ export class EngineGatewayService {
       if (err instanceof HttpException) throw err;
       if (err.name === 'AbortError') {
         throw new HttpException(
-          { error: { code: 'ENGINE_TIMEOUT', message: 'Engine timeout after 120s' } },
+          {
+            error: {
+              code: 'ENGINE_TIMEOUT',
+              message: `Engine timeout after ${Math.round(this.timeoutMs / 1000)}s`,
+            },
+          },
           502,
         );
       }

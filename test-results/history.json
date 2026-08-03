@@ -28,5 +28,35 @@
     "p50Ms": 285775,
     "p95Ms": 301390,
     "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-03T16:54:09.379Z",
+    "file": "integration-2026-08-03T16-54-09-379Z.json",
+    "runs": 10,
+    "concurrency": 2,
+    "fallbackRate": null,
+    "p50Ms": 11983,
+    "p95Ms": 12049,
+    "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-03T17:02:18.493Z",
+    "file": "integration-2026-08-03T17-02-18-493Z.json",
+    "runs": 10,
+    "concurrency": 2,
+    "fallbackRate": 1,
+    "p50Ms": 51081,
+    "p95Ms": 51147,
+    "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-03T17:17:45.189Z",
+    "file": "integration-2026-08-03T17-17-45-189Z.json",
+    "runs": 10,
+    "concurrency": 2,
+    "fallbackRate": 0,
+    "p50Ms": 25047,
+    "p95Ms": 33976,
+    "mvpPass": true
   }
 ]

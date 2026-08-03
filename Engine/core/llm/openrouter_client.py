@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import httpx
-from .client import BaseLLMClient
+from .client import BaseLLMClient, EmptyCompletionError
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,16 @@ class OpenRouterClient(BaseLLMClient):
 
             data = json.loads(body)
             if "choices" in data:
-                return data["choices"][0]["message"]["content"]
-            if "response" in data:
-                return data["response"]
-            return str(data)
+                content = data["choices"][0]["message"]["content"] or ""
+            elif "response" in data:
+                content = data["response"] or ""
+            else:
+                # Don't hand str(data) to the pipeline as if it were a story --
+                # it parses as neither JSON nor prose and only wastes a retry.
+                content = ""
+
+            if not content.strip():
+                raise EmptyCompletionError(
+                    f"{self.model} returned no content for stage={stage or '?'}"
+                )
+            return content

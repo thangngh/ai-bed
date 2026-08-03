@@ -1,11 +1,20 @@
 import os
 import logging
 from typing import Optional
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
+
+# Must run before `core.orchestrator` is imported: StoryOrchestrator is
+# instantiated at module scope below, and LLMRouter reads the provider env
+# vars in its constructor. Loading the file any later (e.g. under
+# `if __name__ == "__main__"`) would leave the router already built from
+# whatever the launching shell happened to export -- which is exactly how a
+# CUSTOM_LLM_URL that appears nowhere in .env ended up serving traffic.
+load_dotenv()
 
 from core.orchestrator import StoryOrchestrator
 app = FastAPI(title="Bedtime Story Engine")
@@ -57,7 +66,7 @@ async def health():
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
-    logger.warning(f"Provider generate")
+    logger.debug("Generate request received")
     result = await orchestrator.generate(req.model_dump())
     return GenerateResponse(**result)
 

@@ -2,7 +2,7 @@ import os
 import logging
 from typing import Optional
 from openai import AsyncOpenAI, RateLimitError, AuthenticationError
-from .client import BaseLLMClient
+from .client import BaseLLMClient, EmptyCompletionError
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,12 @@ class OpenAIClient(BaseLLMClient):
             )
 
             self._record_success(key)
-            return response.choices[0].message.content or ""
+            content = response.choices[0].message.content or ""
+            if not content.strip():
+                raise EmptyCompletionError(
+                    f"{self.model} returned no content for stage={stage or '?'}"
+                )
+            return content
 
         except (RateLimitError, AuthenticationError) as e:
             if key:

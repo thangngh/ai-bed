@@ -1,6 +1,6 @@
 import os
 import logging
-from .client import BaseLLMClient
+from .client import BaseLLMClient, EmptyCompletionError
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,12 @@ class GeminiClient(BaseLLMClient):
                     temperature=self.temperature,
                 ),
             )
-            return response.text or ""
+            content = response.text or ""
+            if not content.strip():
+                raise EmptyCompletionError(
+                    f"{self.model} returned no content for stage={stage or '?'}"
+                )
+            return content
 
         except Exception as e:
             logger.error(f"Gemini API error stage={stage}: {e}")

@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import httpx
-from .client import BaseLLMClient
+from .client import BaseLLMClient, EmptyCompletionError
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,37 @@ DEFAULT_MAX_TOKENS = 4096
 # full story after chain-of-thought); keep a generous httpx timeout so the
 # planner/writer stages don't abort mid-generation.
 DEFAULT_TIMEOUT_SECONDS = 300
+
+
+def _env(preferred: str, legacy: str) -> str:
+    """Read `preferred`, falling back to `legacy` then to the caller's default.
+
+    The custom client used to read OPENAI_MAX_TOKENS / OPENAI_TEMPERATURE --
+    another provider's settings. Deployments that set only the OPENAI_* names
+    keep working, but CUSTOM_LLM_* now wins where present.
+    """
+    value = os.getenv(preferred, "").strip()
+    if value:
+        return value
+    return os.getenv(legacy, "").strip()
+
+
+def _int_env(preferred: str, legacy: str, default: int) -> int:
+    raw = _env(preferred, legacy)
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        logger.warning("Invalid %s=%r, using %d", preferred, raw, default)
+        return default
+
+
+def _float_env(preferred: str, legacy: str, default: float) -> float:
+    raw = _env(preferred, legacy)
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        logger.warning("Invalid %s=%r, using %s", preferred, raw, default)
+        return default
 
 
 def _content_from_payload(parsed: dict) -> str:
@@ -107,21 +138,35 @@ def parse_sse_response(body: str) -> str:
                 try:
                     parsed = json.loads(obj)
                 except json.JSONDecodeError:
+                    # Not JSON at all -- some proxies answer in plain text,
+                    # which is legitimate content.
                     return body
-                return _content_from_payload(parsed) or body
+                # Parsed fine but carries no content: return "" so the caller
+                # raises. Returning `body` here is what leaked a 13KB raw SSE
+                # envelope into a story.
+                return _content_from_payload(parsed)
 
     try:
         parsed = json.loads(body)
     except json.JSONDecodeError:
         return body
-    return _content_from_payload(parsed) or body
+    return _content_from_payload(parsed)
 
 
 class CustomClient(BaseLLMClient):
     def __init__(self):
         self.api_url = os.getenv("CUSTOM_LLM_URL", "")
         self.api_key = os.getenv("CUSTOM_LLM_API_KEY", "")
-        self.model = os.getenv("CUSTOM_LLM_MODEL", "opencode")
+        # Pin a concrete backend, not the `opencode` combo: that combo
+        # round-robins over heterogeneous models (measured 5.9s, 7.2s and
+        # 40.7s on identical prompts, the slowest ignoring the Vietnamese-only
+        # instruction), so one name gives unpredictable latency and quality.
+        #
+        # Not an `oc/` free model either. Those are reasoning models that spend
+        # the entire token budget on `reasoning_content` and return
+        # `content: ""` with `finish_reason: "length"` -- measured on all three
+        # at both 4096 and 16000 max_tokens, never once producing a story.
+        self.model = os.getenv("CUSTOM_LLM_MODEL", "ag/gemini-3-flash-agent")
 
         if not self.api_url:
             raise ValueError("CUSTOM_LLM_URL not configured")
@@ -134,11 +179,18 @@ class CustomClient(BaseLLMClient):
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": int(os.getenv("OPENAI_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
-            "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
+            "max_tokens": _int_env("CUSTOM_LLM_MAX_TOKENS", "OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS),
+            "temperature": _float_env("CUSTOM_LLM_TEMPERATURE", "OPENAI_TEMPERATURE", 0.7),
         }
 
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.post(self.api_url, json=payload, headers=headers)
             response.raise_for_status()
-            return parse_sse_response(response.text)
+
+        content = parse_sse_response(response.text)
+        if not content.strip():
+            raise EmptyCompletionError(
+                f"{self.model} returned no content for stage={stage or '?'} "
+                f"(HTTP {response.status_code}, {len(response.text)} bytes)"
+            )
+        return content
