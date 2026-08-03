@@ -28,7 +28,7 @@ class CustomClient(BaseLLMClient):
             "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(self.api_url, json=payload, headers=headers)
             response.raise_for_status()
             body = response.text.strip()
