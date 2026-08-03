@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import httpx
 from .client import BaseLLMClient
@@ -30,7 +31,12 @@ class CustomClient(BaseLLMClient):
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(self.api_url, json=payload, headers=headers)
             response.raise_for_status()
-            data = response.json()
+            body = response.text.strip()
+
+            if body.endswith("data: [DONE]"):
+                body = body[: -len("data: [DONE]")].rstrip()
+
+            data = json.loads(body)
 
             if "choices" in data:
                 return data["choices"][0]["message"]["content"]
