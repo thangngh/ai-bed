@@ -41,3 +41,16 @@ class TestStoryPipeline:
         assert result.success is True
         assert result.is_fallback is True
         assert result.title == "Câu chuyện bất ngờ"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_accepts_dirty_json_responses():
+    router = MockRouter({
+        "planner": 'Here is the plan\n{"title": "Dirty", "story_structure": {"opening": "...", "sections": [{"order": 0, "type": "opening", "description": "..."}, {"order": 1, "type": "context", "description": "..."}], "moral": "good", "key_characters": ["An"]}} data: [DONE]',
+        "writer": '{"title": "Dirty", "content": [{"type": "opening", "text": "Xin chao ban nho\\n\\nHom nay chung ta co mot cau chuyen", "order": 0}, {"type": "context", "text": "Ngay xua co mot co be\\n\\nCo be song trong ngoi lang nho", "order": 1}, {"type": "conflict", "text": "Mot ngay no bien co xay ra\\n\\nCo be phai doi mat voi thu thach", "order": 2}, {"type": "interaction", "text": "Hoi", "prompt": "Con nghi?", "order": 3}, {"type": "resolution", "text": "Cuoi cung moi chuyen on thoa\\n\\nCo be hoc duoc bai hoc quy gia", "order": 4}], "word_count": 150} trailing junk',
+        "reviewer": '{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}',
+    })
+    pipeline = StoryPipeline(router)
+    result = await pipeline.run({})
+    assert result.success is True
+    assert result.title == "Dirty"

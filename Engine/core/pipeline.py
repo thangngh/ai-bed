@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 from .validator import OutputValidator, ValidationResult
+from .cleanup import extract_json_block
 from .llm.router import LLMRouter
 from .prompts.registry import PromptRegistry
 
@@ -100,7 +101,7 @@ class StoryPipeline:
             try:
                 combined = "\n\n".join([prompts.get("system", ""), prompts.get("developer", ""), prompts.get("user", "")])
                 raw = await self._call_llm(combined, stage)
-                data = json.loads(raw)
+                data = extract_json_block(raw)
                 result = validator(data)
                 if result.valid:
                     return json.dumps(result.fixed_data or data)
@@ -137,7 +138,7 @@ class StoryPipeline:
         )
         raw = await self._call_llm(review_prompt, "reviewer")
         try:
-            return json.loads(raw)
+            return extract_json_block(raw)
         except Exception:
             return {"safety_verdict": "FLAGGED", "issues": [{"type": "format", "severity": "low", "detail": "Cannot parse review"}], "quality_score": 3}
 
