@@ -554,8 +554,12 @@ export class CreateStoryDto {
   @Length(1, 500)
   goal?: string;
 
+  // Implemented as a case-insensitive @IsIn over ALLOWED_MOODS: the SPA sends
+  // the capitalised label its form shows ("Vui vẻ", "Hiếu động", ...), which an
+  // exact-match enum 422'd. See create-story.dto.ts for the current list.
   @IsOptional()
-  @IsEnum(['vui vẻ', 'dịu dàng', 'phiêu lưu', 'hài hước', 'neutral'])
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @IsIn(ALLOWED_MOODS)
   mood?: string;
 
   @IsOptional()

@@ -197,7 +197,9 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
             </p>
           </div>
 
-          {/* Prompt 1 */}
+          {/* Prompt 1 — a story from the Engine may carry fewer than three
+              interaction points, so an empty slot renders nothing at all. */}
+          {story.segments.interaction1 && (
           <div
             onClick={() => togglePromptChecked('prompt1')}
             className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer select-none space-y-1.5 ${
@@ -225,6 +227,7 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
               💡 {story.segments.interaction1}
             </p>
           </div>
+          )}
 
           {/* Paragraph 3: Thử thách nhỏ */}
           <div className="space-y-2">
@@ -237,6 +240,7 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
           </div>
 
           {/* Prompt 2 */}
+          {story.segments.interaction2 && (
           <div
             onClick={() => togglePromptChecked('prompt2')}
             className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer select-none space-y-1.5 ${
@@ -264,6 +268,7 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
               💡 {story.segments.interaction2}
             </p>
           </div>
+          )}
 
           {/* Paragraph 4: Kết thúc ấm áp */}
           <div className="space-y-2">
@@ -276,6 +281,7 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
           </div>
 
           {/* Prompt 3 */}
+          {story.segments.interaction3 && (
           <div
             onClick={() => togglePromptChecked('prompt3')}
             className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer select-none space-y-1.5 ${
@@ -303,6 +309,7 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
               💡 {story.segments.interaction3}
             </p>
           </div>
+          )}
 
           {/* Moral Lesson Summary Box */}
           <div className="p-5 sm:p-6 rounded-2xl border bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-100 space-y-2">

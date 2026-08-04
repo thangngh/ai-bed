@@ -12,9 +12,16 @@ Tạo câu chuyện trước giờ ngủ cho bé 3-6 tuổi bằng AI, hoàn to�
 └──────────┘     └──────────┘     └──────────┘
 ```
 
-- **FE**: React 19 + Vite + Tailwind CSS (thin client, no API keys)
+- **FE**: React 19 + Vite + Tailwind CSS — a pure SPA with no server of its own
+  and no API keys
 - **BE**: NestJS 11 + TypeORM + Bottleneck queue (orchestration layer)
 - **Engine**: Python FastAPI + OpenAI/Gemini/Custom LLM (story generation pipeline)
+
+**The `/api` prefix is a proxy convention, not part of the BE.** The SPA calls
+`/api/story/create`; NestJS serves `/story/create`. Stripping the prefix is the
+job of whatever fronts the SPA — `vite.config.ts` in development,
+`FE/nginx.conf` in production. Anything calling the BE directly (integration
+scripts, `VITE_BE_URL`) uses the bare paths.
 
 ## Quick Start (Docker)
 
@@ -49,12 +56,14 @@ pip install -r requirements.txt
 python main.py      # http://localhost:8000
 ```
 
-### Frontend (React 19)
+### Frontend (React 19 SPA)
 ```bash
 cd FE
 npm install
-npm run dev         # http://localhost:5173
+npm run dev         # http://localhost:3000, proxies /api -> :3001
 ```
+
+Start the Engine and the BE first: the SPA has no fallback story generator.
 
 ## Environment Variables
 
@@ -62,7 +71,8 @@ npm run dev         # http://localhost:5173
 | Variable | Default | Description |
 |---|---|---|
 | PORT | 3001 | BE server port |
-| ENGINE_URL | http://localhost:8000 | Engine base URL |
+| ENGINE_URL | http://localhost:8000 | Engine base URL (compose overrides it to `http://engine:8000`) |
+| ENGINE_TIMEOUT_MS | 60000 | Must stay above the Engine's `PIPELINE_BUDGET_SECONDS` (45s) so a slow run returns a fallback story, not a 502 |
 | DB_PATH | ./data | SQLite files directory |
 | QUEUE_MAX_CONCURRENT | 2 | Bottleneck per-tenant limit |
 | QUEUE_MIN_TIME_MS | 6000 | Minimum time between jobs |
@@ -79,10 +89,16 @@ npm run dev         # http://localhost:5173
 | CUSTOM_LLM_API_KEY | - | Custom LLM API key |
 | CUSTOM_LLM_MODEL | - | Custom LLM model name |
 
+### Engine (.env), continued
+| Variable | Default | Description |
+|---|---|---|
+| PIPELINE_BUDGET_SECONDS | 45 | Whole-generation deadline; a run that exceeds it returns the fallback story |
+
 ### FE (.env)
 | Variable | Default | Description |
 |---|---|---|
-| VITE_BE_URL | /api | BE URL (proxy in dev) |
+| BE_PROXY_TARGET | http://localhost:3001 | Where `vite dev`/`preview` forward `/api/*` (build-time, not `VITE_*`) |
+| VITE_BE_URL | /api | Override only to call a separately hosted BE directly — set it to the BE root *without* `/api` |
 
 ## Project Structure
 
@@ -93,7 +109,7 @@ AI-BEDTIME/
 │   ├── src/
 │   │   ├── common/     # Middleware, guards, filters, pipes
 │   │   ├── modules/    # Tenant, Child, Story, Feedback, Memory, EngineGateway
-│   │   └── config/     # App, engine, rate-limit configs
+│   │   └── config/     # App, memory, rate-limit configs (engine config lives with its module)
 │   └── data/           # SQLite runtime files
 ├── Engine/      # Python FastAPI engine
 │   ├── core/
@@ -107,11 +123,17 @@ AI-BEDTIME/
 ## Testing
 
 ```bash
+# FE
+cd FE && npm test
+
 # BE
 cd BE && npx jest
 
 # Engine
 cd Engine && python -m pytest tests/ -v
+
+# FE -> BE -> Engine against running services
+node scripts/integration-test.mjs
 ```
 
 ## Tech Stack

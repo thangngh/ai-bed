@@ -19,12 +19,12 @@ export class StoryResponse {
     return resp;
   }
 
-  static detail(story: any) {
+  static detail(story: any, child?: any) {
     return {
       story_id: story.storyId,
       title: story.title,
-      child_name: story.childName,
-      age: story.age,
+      child_name: child?.childName ?? null,
+      age: child?.age ?? null,
       theme: story.theme,
       goal: story.goal,
       mood: story.mood,
@@ -32,12 +32,15 @@ export class StoryResponse {
       word_count: story.wordCount,
       is_fallback: story.isFallback === 1,
       is_saved: story.isSaved === 1,
-      sections: (story.sections || []).map((s: any) => ({
-        type: s.sectionType,
-        text: s.content,
-        prompt: s.interactionPrompt,
-        order: s.orderIndex,
-      })),
+      // The relation comes back unordered; the reader needs the story in order.
+      sections: [...(story.sections || [])]
+        .sort((a: any, b: any) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0))
+        .map((s: any) => ({
+          type: s.sectionType,
+          text: s.content,
+          prompt: s.interactionPrompt,
+          order: s.orderIndex,
+        })),
       created_at: story.createdAt,
     };
   }

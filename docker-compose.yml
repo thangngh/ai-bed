@@ -24,12 +24,23 @@ services:
       - "${BACKEND_PORT:-3001}:3001"
     env_file:
       - ./BE/.env
+    environment:
+      # BE/.env holds the host-development value (localhost:8000), which inside
+      # this container points at the container itself. `environment` wins over
+      # `env_file`, so the compose stack reaches the Engine by service name.
+      ENGINE_URL: http://engine:8000
     depends_on:
       engine:
         condition: service_healthy
     restart: unless-stopped
     volumes:
       - be-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   frontend:
     build:
@@ -38,7 +49,8 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

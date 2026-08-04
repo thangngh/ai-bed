@@ -1,5 +1,6 @@
 import json
 import logging
+from .cleanup import extract_json_block
 from .llm.router import LLMRouter
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,13 @@ class MemoryExtractor:
 
         try:
             raw = await self.router.complete(prompt, "memory_ext")
-            data = json.loads(raw)
-            memories = data.get("memories", [])
-            filtered = [m for m in memories if m.get("confidence", 0) >= 0.3]
+            # Same parser as every other stage. Plain json.loads() rejected the
+            # ```json fences and the prose the models actually wrap around the
+            # object, so extraction silently returned [] for every story and the
+            # child's memory never filled up.
+            data = extract_json_block(raw)
+            memories = data if isinstance(data, list) else data.get("memories", [])
+            filtered = [m for m in memories if isinstance(m, dict) and m.get("confidence", 0) >= 0.3]
             logger.info(f"Extracted {len(filtered)} memories from story")
             return filtered
         except Exception as e:

@@ -16,10 +16,21 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { EngineGatewayModule } from './modules/engine-gateway/engine-gateway.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middleware';
+import { HealthController } from './common/health.controller';
+import appConfig from './config/app.config';
+import memoryConfig from './config/memory.config';
+import rateLimitConfig from './config/rate-limit.config';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env', load: [] }),
+    // `load` was empty, so every `config.get('rateLimit...')` / `('memory...')`
+    // silently fell back to the code default and the matching .env entries did
+    // nothing. (`engine.*` is registered by EngineGatewayModule.forFeature.)
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+      load: [appConfig, memoryConfig, rateLimitConfig],
+    }),
     TenantModule,
     ChildModule,
     StoryModule,
@@ -48,11 +59,13 @@ import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middlewa
       inject: [ConfigService],
     }),
   ],
+  controllers: [HealthController],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(TenantMiddleware, RateLimiterMiddleware)
+      .exclude('health')
       .forRoutes('*');
   }
 }
