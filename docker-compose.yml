@@ -20,6 +20,12 @@ services:
       # Round-robin the entry point into the provider chain. Off by default;
       # see .env.example for when it earns its keep.
       LLM_ROTATE: ${LLM_ROTATE:-}
+      # Streaming is on in the client by default (a proxy that ignores it
+      # still works). These are here to be turned down, not up: set
+      # CUSTOM_LLM_STREAM=false only for a proxy that mishandles `stream: true`
+      # outright rather than ignoring it.
+      CUSTOM_LLM_STREAM: ${CUSTOM_LLM_STREAM:-}
+      CUSTOM_LLM_STREAM_IDLE_SECONDS: ${CUSTOM_LLM_STREAM_IDLE_SECONDS:-}
     restart: unless-stopped
     healthcheck:
       # raise_for_status matters: httpx.get alone returns for a 500 as happily

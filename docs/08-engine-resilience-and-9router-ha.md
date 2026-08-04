@@ -305,6 +305,10 @@ write them inside a bedtime-appropriate wait. That is the remaining gap
 between this stack and the `ag/` model of the latency spec, not a defect in
 the HA layer.
 
+Streaming later put numbers on this rather than "too slow": the writer is 93.2s
+on a good run and past 134.6s on a bad one, straddling the 150s budget instead
+of sitting under it. See §3e.
+
 ## 3d. Rotating the entry point into the chain
 
 `LLM_CHAIN` fixes the order; every call then enters at the head. The head
@@ -335,13 +339,100 @@ after three straight failures, for the life of the process. Under rotation a
 dead provider therefore costs three wasted entries and then stops being
 entered at all — but it also does not come back when the *other* provider
 starts returning 429. A cooldown-based re-admission would suit rotation better
-
-One interaction to keep in mind: `MAX_CONSECUTIVE_FAILURES` retires a provider
-after three straight failures, for the life of the process. Under rotation a
-dead provider therefore costs three wasted entries and then stops being
-entered at all — but it also does not come back when the *other* provider
-starts returning 429. A cooldown-based re-admission would suit rotation better
 than the current permanent drop; not built.
+
+## 3e. Reading 9router as a stream
+
+`CUSTOM_LLM_STREAM` (default on) sends `stream: true` and assembles the
+`delta.content` frames.
+
+**It is not a speed optimisation, and expecting one is a mistake I made first.**
+The same writer prompt, alternating modes so a slow patch upstream hits both
+arms equally, `oc/deepseek-v4-flash-free` at `max_tokens=16000`:
+
+| run | streamed | buffered |
+|---|---|---|
+| 1 | 27.7s | 39.1s |
+| 2 | 25.1s | 26.4s |
+| 3 | 46.9s | 40.3s |
+| **mean** | **33.2s** | **35.3s** |
+
+Two seconds apart across a 25–47s spread is noise. A single earlier streamed
+run came back in 20.6s and it was tempting to call that the win; three paired
+runs say it was a warm upstream.
+
+The column that matters is the one measuring silence:
+
+| | streamed | buffered |
+|---|---|---|
+| largest gap between chunks | 1.1–1.7s | 26.4–40.3s |
+
+Buffered, the connection says nothing between the request and the finished
+answer. So a timeout can only be sized for the slowest generation you are
+willing to wait for — `DEFAULT_TIMEOUT_SECONDS = 300` — and a provider that has
+genuinely died costs the full 300s of a 150s pipeline budget before the router
+is allowed to fall back. Silence carries no information, because it is also
+what success looks like.
+
+Streamed, something arrives every second or two, **including while the model is
+only thinking**: the `oc/` models emit `reasoning_content` deltas throughout
+the chain-of-thought, and content itself first appeared at 7.3s on a run whose
+first byte arrived at 0.5s. So httpx's `read` timeout — per-chunk in streaming
+mode — becomes an inactivity timeout. 60s of silence is now unambiguous, and
+sits ~35x above the worst gap ever observed.
+
+### The frame shapes that break a naive reader
+
+All measured, all handled in `iter_stream_frames`, and every one of them was
+found by reading real bytes rather than a specification:
+
+- The opening frame carries `delta.role` with `"content": null` — **null, not
+  absent**, so `delta.get("content", "")` still hands back `None`.
+- The closing frame is `{"choices": [], "cost": "0", ...}`. An empty list, so
+  `choices[0]` is an `IndexError` on the last frame of every successful call.
+- Content and reasoning are separate keys (`content`, `reasoning_content`).
+  Concatenating everything in `delta` puts the chain-of-thought into the story.
+- A proxy that ignores `stream: true` answers with one buffered object instead.
+  That is not an error, so an empty frame list falls back to
+  `parse_sse_response` over the accumulated body rather than raising.
+
+One thing streaming does *not* fix: `finish_reason: "length"` with no content
+is still the reasoning budget being spent before any output (§3c). It is now
+named in the error message, because it was first misdiagnosed as a network
+fault.
+
+### What the stream log then showed about the writer
+
+The per-stage line the streaming path logs turned the writer from a black box
+into a measurement. A complete generation through the HA stack, OpenRouter
+429-capped so every stage fell through to `custom`:
+
+```
+Stream stage=planner:  1057 frames,  1518 reasoning chars, first content at  9.3s, finish_reason=stop
+Stream stage=writer:  10903 frames, 23465 reasoning chars, first content at 82.4s, finish_reason=stop
+Stream stage=reviewer: 3246 frames, 11980 reasoning chars, first content at 32.8s, finish_reason=stop
+```
+
+**The writer thought for 82.4 seconds before emitting one byte of story.**
+Buffered, that is 82.4s of total silence on the socket, indistinguishable from
+a hung connection — which is what the earlier "the writer stalls" readings
+actually were. Streamed, 10903 frames arrived during it, so the call was
+provably alive the whole time and a 60s idle timeout never came close to
+firing. The inactivity timeout only works *because* reasoning is streamed; on
+a provider that withheld its chain-of-thought, 82.4s of quiet would have
+tripped it.
+
+That run returned a real story (`is_fallback=false`, 157.6s straight at the
+Engine) — the first time the free tier has carried a whole generation here.
+The very next run did not: the writer was still going 134.6s in when
+`PIPELINE_BUDGET_SECONDS=150` expired, and the e2e flow scored 11/12 with a
+fallback story. So the writer is 93s on a good run and past 134s on a bad one,
+and 150s sits inside that spread rather than above it. §3c's conclusion stands
+— what streaming changed is that the number is now visible instead of inferred.
+
+That second run also retired OpenRouter: three consecutive 429s reached
+`MAX_CONSECUTIVE_FAILURES`, so the chain is down to `custom` alone for the life
+of the process. Exactly the interaction flagged at the end of §3d, observed.
 
 ## 4. Does HA by Docker internal IP count as separate connections?
 

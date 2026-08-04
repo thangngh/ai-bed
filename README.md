@@ -141,6 +141,8 @@ Start the Engine and the BE first: the SPA has no fallback story generator.
 | CUSTOM_LLM_API_KEY | - | Leave empty under the HA overlay: the balancer injects the per-replica key |
 | CUSTOM_LLM_MODEL | ag/gemini-3-flash-agent | Needs an Antigravity account connected in 9router; the overlay defaults to `oc/deepseek-v4-flash-free`, the fastest of the anonymous models |
 | CUSTOM_LLM_MAX_TOKENS | 4096 | Reasoning models spend this budget *before* emitting content: at 4096 the writer came back `finish_reason: length` with an empty body. The 9router overlay sets 16000 |
+| CUSTOM_LLM_STREAM | true | Request `stream: true`. Not for speed (streamed and buffered average the same) but so silence becomes meaningful: a stream emits every 1–2s even while the model is only reasoning, where a buffered call is silent for its whole 26–40s. A proxy that ignores the flag still works |
+| CUSTOM_LLM_STREAM_IDLE_SECONDS | 60 | How long a stream may go silent before it is abandoned — an *inactivity* timeout, not a deadline. Largest gap ever measured between chunks: 1.7s |
 
 ### Engine (.env), continued
 | Variable | Default | Description |

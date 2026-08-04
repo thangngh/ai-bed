@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 import httpx
 from .client import BaseLLMClient, EmptyCompletionError
 
@@ -25,6 +26,19 @@ DEFAULT_MAX_TOKENS = 4096
 # full story after chain-of-thought); keep a generous httpx timeout so the
 # planner/writer stages don't abort mid-generation.
 DEFAULT_TIMEOUT_SECONDS = 300
+
+# How long a *stream* may go silent before we give up on it. This is the point
+# of streaming here, and it is not about speed: streamed and buffered runs of
+# the same writer prompt averaged 33.2s and 35.3s, which is the same number.
+# What changes is what silence means. Buffered, the connection says nothing at
+# all until the answer is complete -- measured gaps of 26.4s, 39.1s and 40.3s
+# -- so the only safe timeout is one sized for the slowest possible generation,
+# and a provider that has genuinely died still costs the full 300s before the
+# router can fall back. Streamed, the largest gap between chunks on those same
+# runs was 1.1-1.7s, because `reasoning_content` deltas arrive while the model
+# is still only thinking. 60s is roughly 35x the observed worst gap, so it
+# fires on a dead stream and never on a slow one.
+DEFAULT_STREAM_IDLE_SECONDS = 60
 
 
 def _env(preferred: str, legacy: str) -> str:
@@ -56,6 +70,68 @@ def _float_env(preferred: str, legacy: str, default: float) -> float:
     except ValueError:
         logger.warning("Invalid %s=%r, using %s", preferred, raw, default)
         return default
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+class StreamFrame:
+    """One decoded `data:` frame of a chat-completion stream.
+
+    Frames are not uniform, and assuming they are is how a stream reader
+    breaks. Measured against 9router serving `oc/deepseek-v4-flash-free`:
+
+      - the opening frame carries `delta.role` with `"content": null` --
+        `null`, not absent, so `.get("content", "")` still yields None;
+      - middle frames carry `delta.content` *or* `delta.reasoning_content`,
+        the latter while the model is only thinking;
+      - the closing frame is `{"choices": [], "cost": "0", ...}` with an empty
+        choices list, so `choices[0]` raises IndexError;
+      - a proxy that ignores `stream: true` answers with one whole
+        `chat.completion` object instead, i.e. `message.content`, not a delta.
+    """
+
+    __slots__ = ("content", "reasoning", "finish_reason", "usage")
+
+    def __init__(self, parsed: dict):
+        choices = parsed.get("choices") or []
+        choice = choices[0] if choices else {}
+        delta = choice.get("delta") or {}
+        message = choice.get("message") or {}
+        # `or ""` rather than a default: the value is explicitly null on some
+        # frames, and None would break the concatenation below.
+        self.content = delta.get("content") or message.get("content") or ""
+        self.reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
+        self.finish_reason = choice.get("finish_reason")
+        self.usage = parsed.get("usage")
+
+
+def iter_stream_frames(lines):
+    """Decode the `data:` lines of an SSE stream into StreamFrames.
+
+    Skips blank separator lines, stops at the `[DONE]` sentinel, and ignores
+    frames that do not decode -- a truncated final frame should not discard
+    the content that already arrived.
+    """
+    for line in lines:
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:"):].strip()
+        if not payload:
+            continue
+        if payload == "[DONE]":
+            return
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            yield StreamFrame(parsed)
 
 
 def _content_from_payload(parsed: dict) -> str:
@@ -179,29 +255,136 @@ class CustomClient(BaseLLMClient):
         # and less predictable than a connected `ag/` account.
         self.model = os.getenv("CUSTOM_LLM_MODEL", "ag/gemini-3-flash-agent")
 
+        # Ask for a stream by default. It costs nothing when the proxy does not
+        # support it -- an ignored `stream: true` comes back as an ordinary
+        # single-object body, which _read_stream still parses -- and it buys an
+        # inactivity timeout on the providers that do. See
+        # DEFAULT_STREAM_IDLE_SECONDS.
+        self.stream = _bool_env("CUSTOM_LLM_STREAM", True)
+        self.stream_idle = _int_env(
+            "CUSTOM_LLM_STREAM_IDLE_SECONDS", "", DEFAULT_STREAM_IDLE_SECONDS
+        )
+
         if not self.api_url:
             raise ValueError("CUSTOM_LLM_URL not configured")
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-
-        payload = {
+    def _payload(self, prompt: str) -> dict:
+        return {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": _int_env("CUSTOM_LLM_MAX_TOKENS", "OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS),
             "temperature": _float_env("CUSTOM_LLM_TEMPERATURE", "OPENAI_TEMPERATURE", 0.7),
         }
 
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
-            response = await client.post(self.api_url, json=payload, headers=headers)
-            response.raise_for_status()
+    def _headers(self) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
-        content = parse_sse_response(response.text)
+    async def complete(self, prompt: str, stage: str = "") -> str:
+        if self.stream:
+            content, detail = await self._complete_streaming(prompt, stage)
+        else:
+            content, detail = await self._complete_buffered(prompt)
+
         if not content.strip():
             raise EmptyCompletionError(
-                f"{self.model} returned no content for stage={stage or '?'} "
-                f"(HTTP {response.status_code}, {len(response.text)} bytes)"
+                f"{self.model} returned no content for stage={stage or '?'} ({detail})"
             )
         return content
+
+    async def _complete_streaming(self, prompt: str, stage: str) -> tuple[str, str]:
+        payload = dict(self._payload(prompt), stream=True)
+        # `read` is per-chunk in streaming mode, so it is an inactivity timeout
+        # rather than a deadline for the whole generation -- which is exactly
+        # the distinction a buffered request cannot make.
+        timeout = httpx.Timeout(
+            connect=15.0, read=float(self.stream_idle), write=30.0, pool=15.0
+        )
+
+        chunks: list[str] = []
+        reasoning_chars = 0
+        frames = 0
+        finish_reason = None
+        usage = None
+        raw: list[str] = []
+        started = time.monotonic()
+        first_content_at = None
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST", self.api_url, json=payload, headers=self._headers()
+            ) as response:
+                if response.status_code >= 400:
+                    # The body has not been read yet in streaming mode, and
+                    # raise_for_status alone would report the status without
+                    # the proxy's explanation of it.
+                    await response.aread()
+                    response.raise_for_status()
+
+                async for line in response.aiter_lines():
+                    raw.append(line)
+                    # A stream that dribbles a byte forever never trips the
+                    # idle timeout, so keep an absolute ceiling as well.
+                    if time.monotonic() - started > DEFAULT_TIMEOUT_SECONDS:
+                        logger.warning(
+                            "Stream for stage=%s exceeded %ds; using what arrived",
+                            stage or "?", DEFAULT_TIMEOUT_SECONDS,
+                        )
+                        break
+                    for frame in iter_stream_frames([line]):
+                        frames += 1
+                        if frame.content:
+                            if first_content_at is None:
+                                first_content_at = time.monotonic() - started
+                            chunks.append(frame.content)
+                        reasoning_chars += len(frame.reasoning)
+                        if frame.finish_reason:
+                            finish_reason = frame.finish_reason
+                        if frame.usage:
+                            usage = frame.usage
+
+        content = "".join(chunks)
+        if not content and frames == 0:
+            # The proxy ignored `stream: true` and answered with a plain body.
+            # Not an error -- parse it the way a buffered reply is parsed.
+            content = parse_sse_response("\n".join(raw))
+
+        if content:
+            logger.info(
+                "Stream stage=%s: %d frames, %d reasoning chars, first content at %s, "
+                "finish_reason=%s",
+                stage or "?", frames, reasoning_chars,
+                f"{first_content_at:.1f}s" if first_content_at is not None else "never",
+                finish_reason,
+            )
+
+        detail = (
+            f"streamed {frames} frames, {reasoning_chars} reasoning chars, "
+            f"finish_reason={finish_reason}"
+        )
+        if finish_reason == "length" and not content:
+            # The failure mode this codebase has already paid for once: the
+            # whole token budget spent on chain-of-thought, nothing emitted.
+            # Name it, so the next reader does not go looking for a network bug.
+            detail += (
+                f" -- the token budget was spent on reasoning before any content "
+                f"was emitted; raise CUSTOM_LLM_MAX_TOKENS (currently "
+                f"{payload['max_tokens']})"
+            )
+        if usage:
+            detail += f", usage={usage}"
+        return content, detail
+
+    async def _complete_buffered(self, prompt: str) -> tuple[str, str]:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                self.api_url, json=self._payload(prompt), headers=self._headers()
+            )
+            response.raise_for_status()
+
+        return (
+            parse_sse_response(response.text),
+            f"HTTP {response.status_code}, {len(response.text)} bytes",
+        )
