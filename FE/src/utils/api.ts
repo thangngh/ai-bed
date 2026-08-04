@@ -7,10 +7,16 @@ const API_BASE = import.meta.env.VITE_BE_URL || '/api';
 const DEFAULT_TIMEOUT_MS = 15_000;
 /**
  * Story generation is Engine -> LLM bound. BE's own ceiling is ENGINE_TIMEOUT_MS
- * plus queue wait, and the proxies allow 180s; the SPA must not abandon a
+ * plus queue wait, and the proxies allow 240s; the SPA must not abandon a
  * request the BE is still going to answer.
+ *
+ * 240s and not 180s because the outermost limit sets the Engine's whole budget:
+ * on the free OpenRouter tier the writer stage alone has been measured between
+ * 25s and 85s, and a ceiling that forces PIPELINE_BUDGET_SECONDS down to 100
+ * turns half of all requests into the fallback apology. The parent waits
+ * longer in the worst case and gets a real story instead.
  */
-export const STORY_TIMEOUT_MS = 180_000;
+export const STORY_TIMEOUT_MS = 240_000;
 
 export class ApiError extends Error {
   constructor(

@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from core.memory_extractor import MemoryExtractor
 
@@ -66,3 +67,25 @@ class TestMemoryExtractor:
 
         extractor = MemoryExtractor(ProseRouter())
         assert await extractor.extract({"title": "Test"}, "vi") == []
+
+    @pytest.mark.asyncio
+    async def test_gives_up_rather_than_delaying_a_finished_story(self, monkeypatch):
+        # Extraction runs after the pipeline, outside PIPELINE_BUDGET_SECONDS,
+        # so an unbounded call adds its whole latency to a story that is
+        # already written.
+        monkeypatch.setenv("MEMORY_EXTRACT_TIMEOUT_SECONDS", "0.05")
+
+        class SlowRouter:
+            async def complete(self, prompt, stage=""):
+                await asyncio.sleep(5)
+                return '{"memories": []}'
+
+        extractor = MemoryExtractor(SlowRouter())
+        started = asyncio.get_event_loop().time()
+        assert await extractor.extract({"title": "Test"}, "vi") == []
+        assert asyncio.get_event_loop().time() - started < 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_timeout_falls_back_to_the_default(self, monkeypatch):
+        monkeypatch.setenv("MEMORY_EXTRACT_TIMEOUT_SECONDS", "soon")
+        assert MemoryExtractor(MockRouter()).timeout_seconds == 20.0

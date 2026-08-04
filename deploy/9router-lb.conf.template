@@ -1,0 +1,99 @@
+# Round-robin across the 9router replicas, with failover.
+#
+# WHY THIS IS A TEMPLATE AND NOT A PLAIN CONF
+# -------------------------------------------
+# Every 9router replica mints its own API keys against its own SQLite, so a
+# key issued by replica A is 401 on replica B (measured directly against
+# :20129 with :20130's key). A single CUSTOM_LLM_API_KEY behind a plain
+# round-robin upstream would therefore fail roughly half of all calls.
+#
+# So the balancer owns the credential, not the Engine: it picks a replica and
+# injects *that replica's* Authorization header. The Engine needs no
+# CUSTOM_LLM_API_KEY at all, and adding a replica means adding a key here
+# rather than reconfiguring the Engine.
+#
+# The nginx image renders /etc/nginx/templates/*.template through envsubst at
+# start-up, so the keys arrive from the environment (compose reads them from
+# the gitignored root .env) and never live in a committed file. Only names
+# that exist in the environment are substituted, so the `$r9_*` nginx
+# variables below pass through untouched.
+#
+# Timeouts are deliberately long: reasoning models behind opencode zen have
+# been measured at up to ~300s for a single writer call, and cutting the
+# connection early turns a slow-but-good story into an Engine fallback.
+
+# $request_id is unique per request, so this splits evenly instead of pinning
+# a client to one replica. An `upstream` block cannot do this job:
+# proxy_set_header is evaluated before a peer is chosen, so the injected key
+# could not follow the choice of replica.
+split_clients "${request_id}" $r9_pick {
+    50%     b;
+    *       a;
+}
+
+map $r9_pick $r9_first_host { a 9router-a:20128; b 9router-b:20128; }
+map $r9_pick $r9_first_key  { a "${NINEROUTER_KEY_A}"; b "${NINEROUTER_KEY_B}"; }
+
+# The other replica, for the failover hop below.
+map $r9_pick $r9_next_host  { a 9router-b:20128; b 9router-a:20128; }
+map $r9_pick $r9_next_key   { a "${NINEROUTER_KEY_B}"; b "${NINEROUTER_KEY_A}"; }
+
+server {
+    listen 20128;
+
+    # proxy_pass with a variable is resolved per request, so nginx needs
+    # Docker's embedded DNS -- an `upstream` block would have resolved the
+    # names once at start-up instead.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # Surface which replica served the request so the identity probe and the
+    # integration test can attribute rate-limit errors to a specific replica.
+    add_header X-9Router-Replica $r9_pick always;
+
+    location / {
+        set $r9_target $r9_first_host;
+        proxy_pass http://$r9_target;
+        proxy_set_header Authorization "Bearer $r9_first_key";
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+
+        # Streaming (SSE) must not be buffered or the Engine sees the whole
+        # body at once and long generations look like a stall. Request
+        # buffering stays on, which is what lets the failover hop below
+        # re-send the POST body.
+        proxy_buffering off;
+        chunked_transfer_encoding on;
+
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 420s;
+        proxy_read_timeout 420s;
+
+        # Move to the other replica when this one is down or rate-limited.
+        # error_page rather than proxy_next_upstream, because the retry has to
+        # carry a different key.
+        proxy_intercept_errors on;
+        error_page 429 500 502 503 504 = @r9_failover;
+    }
+
+    location @r9_failover {
+        set $r9_target $r9_next_host;
+        proxy_pass http://$r9_target;
+        proxy_set_header Authorization "Bearer $r9_next_key";
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+
+        proxy_buffering off;
+        chunked_transfer_encoding on;
+
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 420s;
+        proxy_read_timeout 420s;
+
+        # No second hop: with two replicas the next one would be the replica
+        # that just failed.
+    }
+}

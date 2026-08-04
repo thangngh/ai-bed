@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 from .client import BaseLLMClient
 from .openai_client import OpenAIClient, AllKeysExhausted
 from .gemini_client import GeminiClient
@@ -21,10 +22,18 @@ class FallbackTriggered(Exception):
 MAX_CONSECUTIVE_FAILURES = 3
 
 
+def _rotate_enabled() -> bool:
+    return os.getenv("LLM_ROTATE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class LLMRouter:
     def __init__(self):
         self.providers: dict[str, BaseLLMClient] = {}
         self.fallback_order: list[str] = []
+        # Round-robin the *starting* provider instead of always entering the
+        # chain at its head. See _next_chain.
+        self.rotate = _rotate_enabled()
+        self._rotation = 0
         self._load_providers()
 
     def _load_providers(self):
@@ -71,9 +80,75 @@ class LLMRouter:
             except ValueError as e:
                 logger.warning(f"OpenRouter not available: {e}")
 
-        self.fallback_order = order
+        self.fallback_order = self._apply_chain_override(order)
         self._consecutive_failures: dict[str, int] = {}
-        logger.info(f"LLM fallback chain: {' -> '.join(order) if order else '(empty)'}")
+        logger.info(
+            f"LLM fallback chain: "
+            f"{' -> '.join(self.fallback_order) if self.fallback_order else '(empty)'}"
+            f"{' (rotating)' if self.rotate else ''}"
+        )
+
+    def _apply_chain_override(self, order: list[str]) -> list[str]:
+        """Let deployment decide the order, rather than the registration code.
+
+        Registration order is fixed (openai, gemini, custom, openrouter), so a
+        deployment that configures both a local proxy and a hosted provider
+        gets the proxy first whether or not that is the faster path. LLM_CHAIN
+        is a comma-separated list of provider names that reorders -- and
+        restricts -- the chain, e.g. `LLM_CHAIN=openrouter,custom` to keep a
+        9router HA stack as failover rather than as primary.
+        """
+        raw = os.getenv("LLM_CHAIN", "").strip()
+        if not raw:
+            return order
+
+        wanted = [name.strip() for name in raw.split(",") if name.strip()]
+        chosen = [name for name in wanted if name in self.providers]
+
+        unknown = [name for name in wanted if name not in self.providers]
+        if unknown:
+            logger.warning(
+                f"LLM_CHAIN names providers that are not configured: {', '.join(unknown)}"
+            )
+        if not chosen:
+            # An override that empties the chain would take the Engine down for
+            # a typo. Fall back to the registration order and say so.
+            logger.warning(
+                f"LLM_CHAIN={raw!r} selected no configured provider; "
+                f"keeping the default order instead"
+            )
+            return order
+
+        dropped = [name for name in order if name not in chosen]
+        if dropped:
+            logger.info(f"LLM_CHAIN excludes configured provider(s): {', '.join(dropped)}")
+        return chosen
+
+    def _next_chain(self) -> list[str]:
+        """The order to try for this one call.
+
+        Without rotation every call enters the chain at its head, so the first
+        provider serves 100% of requests and the rest are dead weight until it
+        breaks. On free tiers that is how you find the daily cap: the head
+        provider answered every request until it started returning 429 and the
+        Engine fell back for the rest of the day (measured, docs/08 §3b).
+
+        With LLM_ROTATE the *entry point* advances one position per call and
+        wraps, so N providers each carry roughly 1/N of the load while every
+        one of them stays available as a fallback for the others -- the order
+        is rotated, never shortened.
+
+        Rotation is off by default because it is only a win when the providers
+        are interchangeable. Where one is markedly better or faster, entering
+        the chain at a worse provider spends its whole timeout before falling
+        through, and pays that on every 1/N of calls.
+        """
+        chain = list(self.fallback_order)
+        if not self.rotate or len(chain) < 2:
+            return chain
+        offset = self._rotation % len(chain)
+        self._rotation = offset + 1
+        return chain[offset:] + chain[:offset]
 
     def _drop(self, provider_name: str, reason: str):
         if provider_name not in self.fallback_order:
@@ -96,12 +171,25 @@ class LLMRouter:
 
     async def complete(self, prompt: str, stage: str = "") -> str:
         last_error = None
-        # Iterate over a copy: a provider may be dropped mid-loop.
-        for provider_name in list(self.fallback_order):
+        # A snapshot, for two reasons: a provider may be dropped mid-loop, and
+        # under rotation this call's order is not self.fallback_order.
+        for provider_name in self._next_chain():
+            if provider_name not in self.fallback_order:
+                # Dropped by an earlier provider's failure handling in this
+                # same loop; do not resurrect it from the snapshot.
+                continue
             try:
                 provider = self.providers[provider_name]
                 logger.info(f"LLM call: provider={provider_name} stage={stage}")
+                started = time.monotonic()
                 result = await provider.complete(prompt, stage)
+                # The elapsed time is the whole point of the budget work in
+                # docs/09; without it a fallback tells you nothing about which
+                # stage spent the time.
+                logger.info(
+                    f"LLM done: provider={provider_name} stage={stage} "
+                    f"in {time.monotonic() - started:.1f}s, {len(result)} chars"
+                )
                 self._consecutive_failures[provider_name] = 0
                 return result
             except AllKeysExhausted as e:

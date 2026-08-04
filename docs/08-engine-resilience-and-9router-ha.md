@@ -94,8 +94,9 @@ JSON before tuning anything else.
 
 ## 3. HA for 9router
 
-`docker-compose.9router-ha.yml` + `deploy/9router-lb.conf` run two 9router
-replicas behind an nginx round-robin balancer and repoint the Engine at it:
+`docker-compose.9router-ha.yml` + `deploy/9router-lb.conf.template` run two
+9router replicas behind an nginx round-robin balancer and repoint the Engine
+at it:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml up -d
@@ -122,9 +123,10 @@ by a real completion, never by `docker ps`. Then mint a key per replica:
 # -> {"key":"sk-...","machineId":"..."}
 ```
 
-Pass that key to the Engine as `CUSTOM_LLM_API_KEY`. Do **not** disable
-`requireApiKey` to skip this; it opens the proxy to anything that can reach
-the port.
+Do **not** disable `requireApiKey` to skip this; it opens the proxy to
+anything that can reach the port.
+
+**The key belongs to the balancer, not to the Engine** — see §3a.
 
 *Step 2 — the combo.* A fresh replica has no combos, so `model: "opencode"`
 returns **404** even with a valid key: the alias is operator-defined, not
@@ -145,17 +147,201 @@ healthcheck. Verified from clean volumes: container start to a successful
 completion in ~2.5s per replica, no manual step. Re-running is safe — it
 reuses an existing key and combo instead of duplicating them.
 
-Feed the printed `CUSTOM_LLM_API_KEY` to the Engine. Note 9router reveals a
-key's secret only at creation, so if you lose it, delete the key in the
-dashboard and re-run.
+Note 9router reveals a key's secret only at creation, so if you lose it,
+delete the key in the dashboard and re-run.
 
-The balancer uses `proxy_next_upstream error timeout http_429 http_502
-http_503`, so a replica that is down *or* rate-limited is skipped. Read
-timeout is 420s to match the slowest observed generation; `proxy_buffering` is
-off so SSE streams through.
+Read timeout is 420s to match the slowest observed generation;
+`proxy_buffering` is off so SSE streams through.
 
 This removes 9router as a single point of failure. Whether it also raises
 throughput is a separate question — see below.
+
+## 3a. One key per replica breaks a plain round-robin
+
+The bootstrap script mints a key **per replica**, because each replica has its
+own SQLite. Those keys are not interchangeable — measured directly:
+
+```
+$ curl -H 'Authorization: Bearer <replica B's key>' http://localhost:20129/v1/chat/completions
+401 Unauthorized
+```
+
+So the original design — one `CUSTOM_LLM_API_KEY` on the Engine, an nginx
+`upstream` block round-robining two replicas — fails roughly **half** of all
+calls, and the failures look like an unreliable proxy rather than a
+configuration error. Worse, `proxy_next_upstream` does not rescue it: 401 is
+not in the retry list, and adding it would just send the same wrong key to the
+other replica.
+
+The fix is to move the credential from the Engine to the balancer. The
+balancer picks a replica and injects *that replica's* `Authorization` header:
+
+```nginx
+split_clients "${request_id}" $r9_pick { 50% b; * a; }
+map $r9_pick $r9_first_host { a 9router-a:20128; b 9router-b:20128; }
+map $r9_pick $r9_first_key  { a "${NINEROUTER_KEY_A}"; b "${NINEROUTER_KEY_B}"; }
+```
+
+An `upstream` block cannot do this: `proxy_set_header` is evaluated before a
+peer is chosen, so the header could not follow the choice. `split_clients` on
+`$request_id` gives the same even split, and failover becomes an
+`error_page 429 500 502 503 504 = @r9_failover` hop that re-sends the request
+to the other replica with the other key.
+
+Consequences worth knowing:
+
+- The Engine sets **`CUSTOM_LLM_API_KEY=""`**. Anything it sends is
+  overwritten, and would be wrong for one replica in any case.
+- The conf is a **template** (`deploy/9router-lb.conf.template`), rendered by
+  the nginx image's envsubst entrypoint from `NINEROUTER_KEY_A` /
+  `NINEROUTER_KEY_B`, so the secrets stay in the gitignored root `.env`.
+- Adding a replica means adding a key and a `map` entry — the Engine's
+  configuration does not change.
+
+Verified: six requests through the balancer with no `Authorization` header of
+their own, all `200`, split 3/3 across `X-9Router-Replica: a|b`.
+
+## 3b. What the replicas can actually serve
+
+`healthy` and `authenticated` still do not mean "can write a story". A
+freshly bootstrapped replica has no provider connections, so only the
+anonymous `oc/` passthrough answers; everything else is `404`, including the
+`ag/gemini-3-flash-agent` that
+[09-mvp-latency-spec.md](./09-mvp-latency-spec.md) §4 pins:
+
+| model | result |
+|---|---|
+| `ag/gemini-3-flash-agent` | 404 — Antigravity account not connected |
+| `gemini/*`, `bzl/*`, `llm7/*`, `kgw/*` | 404 — no connection |
+| `oc/nemotron-3-ultra-free` | 200, real Vietnamese prose, ~21s |
+| `oc/north-mini-code-free` | 200, ~21s |
+| `oc/deepseek-v4-flash-free` | 500 after 100s |
+
+And on the Engine's own planner prompt, `oc/nemotron-3-ultra-free` returns
+**HTTP 200 with an empty body** — the reasoning-model failure of §4 of the
+latency spec, reproduced from the container. A chain led by `custom`
+therefore produces the fallback story on every request.
+
+That is why the HA overlay ships `LLM_CHAIN=openrouter,custom`: 9router HA is
+an availability layer, and it can only be the *primary* once a replica has a
+real provider connected.
+
+## 3c. What the free tier serves, measured properly
+
+`node scripts/probe-9router-models.mjs` sends a real completion to each model
+through the balancer *and* each replica directly
+(`test-results/9router-models-*.json`):
+
+| model | via balancer | via replica A | via replica B |
+|---|---|---|---|
+| `oc/deepseek-v4-flash-free` | 490 chars, 5.6s | 518 chars, 9.8s | 427 chars, 6.0s |
+| `oc/nemotron-3-ultra-free` | 523 chars, 6.0s | 577 chars, 9.9s | 449 chars, 21.1s |
+| `oc/north-mini-code-free` | 793 chars, 44.9s | 508 chars, 35.9s | 35–45s |
+| `opencode` (the combo) | **0 chars**, `finish=length`, 32.6s | 543 chars, 5.8s | 499 chars, 5.4s |
+| `ag/gemini-3-flash-agent` | 404 | 404 | 404 |
+
+So the anonymous tier **does** write Vietnamese prose, deepseek fastest of the
+three. The `ag/` 404 body names its cause outright —
+`No active credentials for provider: antigravity` — and `opencode-go/*`, the
+credentialed OpenCode models in the catalogue, answer
+`[AUTH] No credentials for opencode-go`.
+
+The combo's one empty result is not noise: it round-robins over all three
+members, so it inherits the slowest and the least reliable. Pin a model.
+
+**`/v1/models` is not a list of what works.** It returns 9router's entire
+catalogue, ~500 names across every provider it knows how to speak to, whether
+or not an account is connected. Only a completed request is evidence.
+
+**The balancer is fine.** Six consecutive requests through it returned 200,
+split 4/2 across the replicas by `split_clients`, sending no key of their own
+— so the per-replica injection of §3a works. Failover was then observed live
+in the Engine log: OpenRouter answered 429 in 0.6s and the same call was
+served by the balancer immediately after.
+
+### Two measurement traps, both of which produced a wrong answer first
+
+**1. The response is not JSON, and not quite SSE either.** 9router replies
+`content-type: text/event-stream` with one complete JSON object followed by
+`data: [DONE]` *on the same line*:
+
+```
+{"id":"...","choices":[{"finish_reason":"stop","message":{"content":"Chú gấu bông Mít..."}}],"cost":"0"}data: [DONE]
+```
+
+`JSON.parse(body)` throws on the trailer, and splitting on `data: ` finds no
+frame. A probe doing either reports every model as returning nothing. The
+Engine gets this right — `custom_client.parse_sse_response` scans for the
+first balanced object — and the probe script now carries the same scanner.
+**The first two probe runs in this section's history reported `0 chars` for
+every model; that was the probe, not the models.**
+
+**2. `max_tokens` is a reasoning budget before it is an output budget.** These
+are reasoning models. On a nine-section writer prompt at the client's default
+4096:
+
+```
+finish_reason: "length"   completion_tokens: 4096   reasoning_tokens: 4096   content: ""
+```
+
+The whole allowance went on deliberation and nothing was emitted. The same
+prompt at 16000: `finish_reason: "stop"`, 2498 reasoning tokens, and a
+complete JSON story. Hence `CUSTOM_LLM_MAX_TOKENS: 16000` in the overlay.
+
+Note what this means for failover: a 200 with an empty body is a **success**
+to every layer that only reads status codes — 9router's own combo strategy
+(`[COMBO] Model oc/deepseek-v4-flash-free succeeded` … `OUT 0`) and the
+balancer's `error_page 429 500 502 503 504` alike. Only
+`CustomClient.complete` catches it, by raising `EmptyCompletionError` and
+moving to the next provider. That is the layer that has to hold.
+
+### What still does not fit: the writer stage
+
+With deepseek pinned and the token budget raised, the planner completes
+through the HA stack in 17–31s. The writer does not fit the deadline: it was
+still in flight when `PIPELINE_BUDGET_SECONDS=150` expired, 118s in, so the
+story degrades to the fallback. The free tier writes stories; it does not
+write them inside a bedtime-appropriate wait. That is the remaining gap
+between this stack and the `ag/` model of the latency spec, not a defect in
+the HA layer.
+
+## 3d. Rotating the entry point into the chain
+
+`LLM_CHAIN` fixes the order; every call then enters at the head. The head
+provider serves 100% of requests and the rest of the chain is idle until it
+breaks — which is exactly how an afternoon of testing burned OpenRouter's free
+daily cap while two 9router replicas sat unused.
+
+`LLM_ROTATE=true` advances the entry point one position per call and wraps, so
+N providers each take ~1/N of the load. The chain is **rotated, not
+shortened**: a call that enters at `custom` still falls through to
+`openrouter` if `custom` fails, so rotation costs no resilience. Observed on a
+live generation, chain `custom -> openrouter`:
+
+```
+LLM call: provider=custom     stage=planner    -> done in 31.2s, 1382 chars
+LLM call: provider=openrouter stage=writer     -> 429 in 0.6s, trying fallback
+LLM call: provider=custom     stage=writer
+```
+
+The entry point moved from `custom` to `openrouter` between the two stages,
+and the 429 cost 0.6s before the call landed where it would have gone anyway.
+
+Off by default in the base compose file, **on** in the HA overlay, where both
+sides of the chain can serve and only one of them has a daily cap.
+
+One interaction to keep in mind: `MAX_CONSECUTIVE_FAILURES` retires a provider
+after three straight failures, for the life of the process. Under rotation a
+dead provider therefore costs three wasted entries and then stops being
+entered at all — but it also does not come back when the *other* provider
+starts returning 429. A cooldown-based re-admission would suit rotation better
+
+One interaction to keep in mind: `MAX_CONSECUTIVE_FAILURES` retires a provider
+after three straight failures, for the life of the process. Under rotation a
+dead provider therefore costs three wasted entries and then stops being
+entered at all — but it also does not come back when the *other* provider
+starts returning 429. A cooldown-based re-admission would suit rotation better
+than the current permanent drop; not built.
 
 ## 4. Does HA by Docker internal IP count as separate connections?
 

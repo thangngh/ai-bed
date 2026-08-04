@@ -1,4 +1,5 @@
-FROM node:20-alpine AS build
+# Matches the BE image and Vite 6's supported range (20.19+ / 22.12+).
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

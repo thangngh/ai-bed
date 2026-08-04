@@ -16,6 +16,14 @@ import uvicorn
 # CUSTOM_LLM_URL that appears nowhere in .env ended up serving traffic.
 load_dotenv()
 
+# Nothing configured the root logger, so it sat at WARNING: every
+# `logger.info` in the pipeline and the router was dropped, and `docker logs`
+# showed only failures with no trace of which provider or stage produced them.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 from core.orchestrator import StoryOrchestrator
 app = FastAPI(title="Bedtime Story Engine")
 orchestrator = StoryOrchestrator()

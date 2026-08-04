@@ -14,10 +14,11 @@ const apiProxy = {
     target: BE_TARGET,
     changeOrigin: true,
     rewrite: (p: string) => p.replace(/^\/api/, ''),
-    // Story generation runs Engine -> LLM and can legitimately take a minute;
+    // Story generation runs Engine -> LLM and can legitimately take minutes;
     // the default proxy timeout would cut it off before BE's own deadline.
-    timeout: 180_000,
-    proxyTimeout: 180_000,
+    // Matches FE/nginx.conf so dev and production give up at the same point.
+    timeout: 240_000,
+    proxyTimeout: 240_000,
   },
 };
 

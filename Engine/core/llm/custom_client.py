@@ -10,6 +10,15 @@ logger = logging.getLogger(__name__)
 # before producing content. A 1024 budget leaves no room for the actual story
 # (empty content -> truncated JSON -> fallback). 4096 fits reasoning + ~150
 # Vietnamese words.
+#
+# It does NOT fit the writer stage. Measured on `oc/deepseek-v4-flash-free`
+# with a nine-section prompt: at 4096 the reply came back
+# `finish_reason: "length"` with `reasoning_tokens: 4096` and `content: ""` --
+# the whole budget spent deliberating, nothing emitted. The same prompt at
+# 16000 finished with `stop`, 2498 reasoning tokens, and a complete JSON story.
+# So a deployment using reasoning models must raise CUSTOM_LLM_MAX_TOKENS; the
+# 9router overlay sets 16000. The default stays low because it is also the
+# budget for pay-per-token providers.
 DEFAULT_MAX_TOKENS = 4096
 
 # Reasoning models can take several minutes per call (the writer stage emits a
@@ -162,10 +171,12 @@ class CustomClient(BaseLLMClient):
         # 40.7s on identical prompts, the slowest ignoring the Vietnamese-only
         # instruction), so one name gives unpredictable latency and quality.
         #
-        # Not an `oc/` free model either. Those are reasoning models that spend
-        # the entire token budget on `reasoning_content` and return
-        # `content: ""` with `finish_reason: "length"` -- measured on all three
-        # at both 4096 and 16000 max_tokens, never once producing a story.
+        # The `oc/` free models are reasoning models: they spend the token
+        # budget on `reasoning_content` first, so an undersized
+        # CUSTOM_LLM_MAX_TOKENS returns `content: ""` with
+        # `finish_reason: "length"`. They do write stories once the budget fits
+        # the reasoning -- see DEFAULT_MAX_TOKENS above -- but they are slower
+        # and less predictable than a connected `ag/` account.
         self.model = os.getenv("CUSTOM_LLM_MODEL", "ag/gemini-3-flash-agent")
 
         if not self.api_url:
