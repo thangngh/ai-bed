@@ -5,6 +5,7 @@ from .client import BaseLLMClient
 from .openai_client import OpenAIClient, AllKeysExhausted
 from .gemini_client import GeminiClient
 from .custom_client import CustomClient
+from .deepseek_client import DeepSeekClient
 from .openrouter_client import OpenRouterClient
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,14 @@ class LLMRouter:
             except ValueError as e:
                 logger.warning(f"Custom LLM not available: {e}")
 
-        if openrouter_key:
+        if os.getenv("DEEPSEEK_API_KEY", "").strip():
+            try:
+                self.providers["deepseek"] = DeepSeekClient()
+                order.append("deepseek")
+            except ValueError as e:
+                logger.warning(f"DeepSeek not available: {e}")
+
+        if openrouter_key or os.getenv("OPENROUTER_API_KEYS", "").strip():
             try:
                 self.providers["openrouter"] = OpenRouterClient()
                 order.append("openrouter")
@@ -91,7 +99,8 @@ class LLMRouter:
     def _apply_chain_override(self, order: list[str]) -> list[str]:
         """Let deployment decide the order, rather than the registration code.
 
-        Registration order is fixed (openai, gemini, custom, openrouter), so a
+        Registration order is fixed (openai, gemini, custom, deepseek,
+        openrouter), so a
         deployment that configures both a local proxy and a hosted provider
         gets the proxy first whether or not that is the faster path. LLM_CHAIN
         is a comma-separated list of provider names that reorders -- and

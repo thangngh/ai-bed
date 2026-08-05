@@ -64,7 +64,7 @@ services:
       # only exists after onboarding, so a 401 there would keep a working
       # replica permanently unhealthy. This checks process liveness only --
       # "healthy" here does NOT mean the replica can complete a request.
-      test: ["CMD", "wget", "-qO-", "http://localhost:20128/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:20128/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -90,7 +90,7 @@ services:
       # only exists after onboarding, so a 401 there would keep a working
       # replica permanently unhealthy. This checks process liveness only --
       # "healthy" here does NOT mean the replica can complete a request.
-      test: ["CMD", "wget", "-qO-", "http://localhost:20128/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:20128/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -119,7 +119,7 @@ services:
     healthcheck:
       # Proxies through to whichever replica the split picks, so this exercises
       # the balancer's own path rather than just nginx being alive.
-      test: ["CMD", "wget", "-qO-", "http://localhost:20128/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:20128/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -152,21 +152,19 @@ services:
       # `content: ""` -- the entire budget spent thinking. The same prompt at
       # 16000 finished with `stop` and a complete JSON story.
       CUSTOM_LLM_MAX_TOKENS: ${CUSTOM_LLM_MAX_TOKENS:-16000}
-      # OpenRouter first: it is the only provider here that has ever carried a
-      # generation all the way to a real story (68.8s, e2e-flow 14-10-52).
-      # `custom` serves the planner reliably through the HA stack (16-31s) but
-      # its writer stage has been measured at 47.6s, ~60s and >188s on the same
-      # prompt, so it cannot lead.
-      #
-      # Under LLM_ROTATE this order matters less than it reads: the entry point
-      # alternates, so both providers carry calls either way. It decides who
-      # goes first on the very first call and the fallthrough sequence.
-      LLM_CHAIN: ${LLM_CHAIN:-openrouter,custom}
+      # Thinking off by default: measured COMPLETE + faster (see docs/10 §4
+      # and scripts/probe-stream-thinking.py); nemotron answers 400 with it on.
+      CUSTOM_LLM_THINKING: ${CUSTOM_LLM_THINKING:-disabled}
+      # Production fallback order: deepseek (paid key) first, then openrouter
+      # (free, 2-3 keys in rotation), then custom (the 9router HA balancer) as
+      # the last resort. Names without credentials are skipped, so deepseek is
+      # harmless until DEEPSEEK_API_KEY is set.
+      LLM_CHAIN: ${LLM_CHAIN:-deepseek,openrouter,custom}
       # Round-robin the entry point so neither provider absorbs every call --
       # entering at the head every time is how OpenRouter's daily cap got spent
       # in one afternoon of testing. The chain is rotated, not shortened: a
       # call that enters at `custom` still falls through to `openrouter`.
-      LLM_ROTATE: ${LLM_ROTATE:-true}
+      LLM_ROTATE: ${LLM_ROTATE:-false}
       # The free OpenRouter tier is much slower than the `ag/` model the
       # latency spec was measured on: planner 10.9s + writer 31.5s +
       # reviewer 9.9s = 52.3s on a good run, and the writer alone has been

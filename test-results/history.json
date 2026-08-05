@@ -68,5 +68,55 @@
     "p50Ms": 120331,
     "p95Ms": 150382,
     "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-05T03:29:15.733Z",
+    "file": "integration-2026-08-05T03-29-15-733Z.json",
+    "runs": 20,
+    "concurrency": 4,
+    "fallbackRate": 0.545,
+    "p50Ms": 228975,
+    "p95Ms": 349760,
+    "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-05T04:01:13.285Z",
+    "file": "integration-2026-08-05T04-01-13-285Z.json",
+    "runs": 20,
+    "concurrency": 4,
+    "fallbackRate": 0.667,
+    "p50Ms": 252243,
+    "p95Ms": 339576,
+    "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-05T04:24:59.041Z",
+    "file": "integration-2026-08-05T04-24-59-041Z.json",
+    "runs": 20,
+    "concurrency": 4,
+    "fallbackRate": 1,
+    "p50Ms": 142823,
+    "p95Ms": 163800,
+    "mvpPass": false
+  },
+  {
+    "startedAt": "2026-08-05T04:47:03.917Z",
+    "file": "integration-2026-08-05T04-47-03-917Z.json",
+    "runs": 20,
+    "concurrency": 4,
+    "fallbackRate": 0,
+    "p50Ms": 89703,
+    "p95Ms": 121257,
+    "mvpPass": true
+  },
+  {
+    "startedAt": "2026-08-05T05:00:32.276Z",
+    "file": "integration-2026-08-05T05-00-32-276Z.json",
+    "runs": 20,
+    "concurrency": 4,
+    "fallbackRate": 0.8,
+    "p50Ms": 24548,
+    "p95Ms": 100400,
+    "mvpPass": false
   }
 ]

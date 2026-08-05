@@ -269,12 +269,21 @@ class CustomClient(BaseLLMClient):
             raise ValueError("CUSTOM_LLM_URL not configured")
 
     def _payload(self, prompt: str) -> dict:
-        return {
+        payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": _int_env("CUSTOM_LLM_MAX_TOKENS", "OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS),
             "temperature": _float_env("CUSTOM_LLM_TEMPERATURE", "OPENAI_TEMPERATURE", 0.7),
         }
+        # Measured on the 9router HA stack (scripts/probe-stream-thinking.py,
+        # 2026-08-05): the `oc/*-free` backends answer COMPLETE stories faster
+        # with thinking off (deepseek 10.3s vs 11.8s, nemotron 400 -> 200), and
+        # the reasoning channel is never used by the Engine anyway. Proxies
+        # that do not understand the param ignore it.
+        thinking = os.getenv("CUSTOM_LLM_THINKING", "disabled").strip().lower()
+        if thinking in {"enabled", "disabled"}:
+            payload["thinking"] = {"type": thinking}
+        return payload
 
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}

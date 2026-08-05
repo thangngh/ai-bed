@@ -128,10 +128,12 @@ class TestOutputValidator:
         result = validator.check_section_depth(sections)
         assert result.valid
 
-    def test_section_depth_too_shallow(self):
+    def test_section_depth_empty_fails(self):
+        # The floor is one non-empty paragraph: the free tier writes single-
+        # paragraph sections (measured), which is still a complete story.
         validator = OutputValidator()
         sections = [
-            {"type": "opening", "text": "Chỉ một đoạn"},
+            {"type": "opening", "text": ""},
         ]
         result = validator.check_section_depth(sections)
         assert not result.valid

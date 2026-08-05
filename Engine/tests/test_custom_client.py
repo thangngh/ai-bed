@@ -287,6 +287,31 @@ class TestStreaming:
         assert seen["stream"] is True
 
     @pytest.mark.asyncio
+    async def test_thinking_disabled_by_default(self, monkeypatch):
+        # Measured on the 9router stack: the oc/ reasoning backends complete
+        # faster with thinking off, and nemotron returns 400 with it on.
+        seen = {}
+        client = self._client(monkeypatch, _sse(_delta("ok")), seen=seen)
+        await client.complete("hi")
+        assert seen["thinking"] == {"type": "disabled"}
+
+    @pytest.mark.asyncio
+    async def test_thinking_mode_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("CUSTOM_LLM_THINKING", "enabled")
+        seen = {}
+        client = self._client(monkeypatch, _sse(_delta("ok")), seen=seen)
+        await client.complete("hi")
+        assert seen["thinking"] == {"type": "enabled"}
+
+    @pytest.mark.asyncio
+    async def test_thinking_param_can_be_omitted(self, monkeypatch):
+        monkeypatch.setenv("CUSTOM_LLM_THINKING", "")
+        seen = {}
+        client = self._client(monkeypatch, _sse(_delta("ok")), seen=seen)
+        await client.complete("hi")
+        assert "thinking" not in seen
+
+    @pytest.mark.asyncio
     async def test_assembles_delta_frames(self, monkeypatch):
         body = _sse(
             OPENING_FRAME,
