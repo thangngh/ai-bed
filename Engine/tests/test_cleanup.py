@@ -18,6 +18,10 @@ class TestExtractJsonBlock:
     def test_multiple_blocks_returns_first(self):
         assert extract_json_block('{"a": 1} {"b": 2}') == {"a": 1}
 
+    def test_markdown_fence(self):
+        # Reasoning models wrap the answer in a ```json ... ``` fence.
+        assert extract_json_block('```json\n{"a": 1}\n```') == {"a": 1}
+
     def test_extracts_array(self):
         assert extract_json_block('[1, 2, 3]') == [1, 2, 3]
 

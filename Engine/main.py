@@ -1,15 +1,33 @@
 import os
+import logging
 from typing import Optional
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
-from core.orchestrator import StoryOrchestrator
+# Must run before `core.orchestrator` is imported: StoryOrchestrator is
+# instantiated at module scope below, and LLMRouter reads the provider env
+# vars in its constructor. Loading the file any later (e.g. under
+# `if __name__ == "__main__"`) would leave the router already built from
+# whatever the launching shell happened to export -- which is exactly how a
+# CUSTOM_LLM_URL that appears nowhere in .env ended up serving traffic.
+load_dotenv()
 
+# Nothing configured the root logger, so it sat at WARNING: every
+# `logger.info` in the pipeline and the router was dropped, and `docker logs`
+# showed only failures with no trace of which provider or stage produced them.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+from core.orchestrator import StoryOrchestrator
 app = FastAPI(title="Bedtime Story Engine")
 orchestrator = StoryOrchestrator()
+logger = logging.getLogger(__name__)
 
 
 @app.exception_handler(RequestValidationError)
@@ -56,6 +74,7 @@ async def health():
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest):
+    logger.debug("Generate request received")
     result = await orchestrator.generate(req.model_dump())
     return GenerateResponse(**result)
 

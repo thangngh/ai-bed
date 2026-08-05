@@ -30,9 +30,10 @@ class StoryOrchestrator:
             "gender": data.get("gender", "unspecified"),
             "favoriteCharacter": data.get("favorite_character", ""),
         })
-
+        # DEBUG, not WARNING: this fires on every request and dumps the whole
+        # assembled prompt, which contains the child's name and memories.
+        logger.debug("Assembled prompts: %s", prompts)
         result = await self.pipeline.run(prompts)
-
         memories = []
         if result.success and not result.is_fallback:
             story_data = {"title": result.title, "content": result.content}

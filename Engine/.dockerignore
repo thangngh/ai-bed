@@ -1,0 +1,23 @@
+# The host virtualenv is ~300MB of Windows-built wheels; requirements.txt is
+# installed for Linux in the image instead.
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+
+# API keys come from compose `env_file` at run time. Baking .env into the
+# image would ship them to anyone who pulls it -- and load_dotenv() would then
+# read the file rather than the values compose injected.
+.env
+.env.*
+!.env.example
+
+tests
+.git
+.gitignore
+
+# Scratch files from LLM-response debugging; not part of the service.
+_probe_*
+_raw_response.txt
+_writer_raw.txt

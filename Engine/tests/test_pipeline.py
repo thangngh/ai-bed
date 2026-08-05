@@ -1,5 +1,8 @@
+import asyncio
+import time
+
 import pytest
-from core.pipeline import StoryPipeline, FALLBACK_STORY
+from core.pipeline import StoryPipeline, FALLBACK_STORY, DEFAULT_BUDGET_SECONDS
 from core.llm.client import BaseLLMClient
 
 
@@ -42,6 +45,76 @@ class TestStoryPipeline:
         assert result.is_fallback is True
         assert result.title == "Câu chuyện bất ngờ"
 
+    @pytest.mark.asyncio
+    async def test_survives_noisy_json_output(self):
+        """Real reasoning LLMs (e.g. opencode via proxy) wrap JSON in markdown
+        fences or append trailing prose. The pipeline must extract the JSON
+        object instead of failing json.loads -> fallback."""
+        planner = (
+            '```json\n'
+            '{"title": "Chú mèo dũng cảm", '
+            '"story_structure": {"sections": [{"order": 0, "type": "opening", "description": "..."}, {"order": 1, "type": "context", "description": "..."}], "moral": "hãy dũng cảm"}, '
+            '"key_characters": ["Mèo"]}\n'
+            '```\n'
+            'Đây là outline cho bé An.'
+        )
+        writer = (
+            '{"title": "Chú mèo dũng cảm", "content": [{"type": "opening", "text": "Ngày xửa ngày xưa\\n\\nCó một chú mèo con", "order": 0}, {"type": "context", "text": "Chú mèo sống trong khu rừng\\n\\nMột buổi sáng đẹp trời", "order": 1}, {"type": "conflict", "text": "Chú mèo lạc đường\\n\\nChú phải tìm đường về", "order": 2}, {"type": "interaction", "text": "Hỏi", "prompt": "Con nghĩ?", "order": 3}, {"type": "resolution", "text": "Chú mèo tìm được nhà\\n\\nMọi người vui mừng", "order": 4}], "word_count": 150}'
+            '\n\nKết thúc câu chuyện ở đây.'
+        )
+        router = MockRouter({
+            "planner": planner,
+            "writer": writer,
+            "reviewer": '{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}',
+        })
+        pipeline = StoryPipeline(router)
+
+        result = await pipeline.run({})
+        assert result.success is True
+        assert result.is_fallback is False
+        assert result.title == "Chú mèo dũng cảm"
+
+
+    @pytest.mark.asyncio
+    async def test_writer_retry_appends_interaction_hint(self):
+        """When the writer omits the required 'interaction' section, the retry
+        prompt must tell the model to add one (strict policy: keep the
+        requirement, guide the model on retry)."""
+        class HintRouter:
+            def __init__(self):
+                self.prompts = []
+                self.writer_calls = 0
+
+            async def complete(self, prompt, stage=""):
+                self.prompts.append((stage, prompt))
+                if stage == "planner":
+                    return '{"title": "Test", "story_structure": {"sections": [{"order": 0, "type": "opening", "description": "..."}, {"order": 1, "type": "context", "description": "..."}], "moral": "good"}}'
+                if stage == "writer":
+                    self.writer_calls += 1
+                    if self.writer_calls == 1:
+                        return '{"title": "Test", "content": [{"type": "opening", "text": "A\\n\\nB", "order": 0}], "word_count": 150}'
+                    return ('{"title": "Test", "content": ['
+                            '{"type": "opening", "text": "A\\n\\nB", "order": 0}, '
+                            '{"type": "context", "text": "C\\n\\nD", "order": 1}, '
+                            '{"type": "conflict", "text": "E\\n\\nF", "order": 2}, '
+                            '{"type": "resolution", "text": "G\\n\\nH", "order": 3}, '
+                            '{"type": "interaction", "text": "Con nghĩ sao?", "prompt": "?", "order": 4}], '
+                            '"word_count": 150}')
+                return '{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}'
+
+        router = HintRouter()
+        pipeline = StoryPipeline(router)
+
+        result = await pipeline.run({"user": "Child info"})
+        # First writer call returned no interaction -> retry with hint -> success
+        assert result.success is True
+        assert result.is_fallback is False
+
+        writer_prompts = [p for (stage, p) in router.prompts if stage == "writer"]
+        assert len(writer_prompts) >= 2
+        assert "interaction" in writer_prompts[-1].lower()
+
+
 
 @pytest.mark.asyncio
 async def test_pipeline_accepts_dirty_json_responses():
@@ -68,3 +141,69 @@ async def test_pipeline_writer_interaction_section():
     result = await pipeline.run({})
     assert result.success is True
     assert result.title == "Test"
+
+
+class SlowRouter:
+    """Router whose every call takes longer than the whole budget allows."""
+
+    def __init__(self, delay: float):
+        self.delay = delay
+        self.call_count = 0
+
+    async def complete(self, prompt: str, stage: str = ""):
+        self.call_count += 1
+        await asyncio.sleep(self.delay)
+        return "{}"
+
+
+class TestTimeBudget:
+    @pytest.mark.asyncio
+    async def test_returns_fallback_within_budget(self):
+        # Without a budget the worst case is 10 calls x the client's 300s
+        # timeout. The generation must give up while BE is still listening.
+        pipeline = StoryPipeline(SlowRouter(delay=30))
+        pipeline.budget_seconds = 6
+
+        started = time.monotonic()
+        result = await pipeline.run({})
+        elapsed = time.monotonic() - started
+
+        assert result.is_fallback is True
+        assert elapsed < 10, f"took {elapsed:.1f}s, budget was 6s"
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_after_timeout(self):
+        # A stage that ran out of time will run out again; retrying it only
+        # spends budget that the fallback needs.
+        router = SlowRouter(delay=30)
+        pipeline = StoryPipeline(router)
+        # Must exceed MIN_STAGE_SECONDS so the first call actually starts and
+        # then times out -- that is the path under test.
+        pipeline.budget_seconds = 6
+
+        await pipeline.run({})
+
+        assert router.call_count == 1, f"retried a timed-out stage {router.call_count} times"
+
+    @pytest.mark.asyncio
+    async def test_no_call_started_without_time_left(self):
+        router = SlowRouter(delay=30)
+        pipeline = StoryPipeline(router)
+        # Already past the deadline before the first stage.
+        pipeline.budget_seconds = 0.001
+
+        result = await pipeline.run({})
+
+        assert result.is_fallback is True
+        assert router.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_budget_read_from_env(self, monkeypatch):
+        monkeypatch.setenv("PIPELINE_BUDGET_SECONDS", "12")
+        assert StoryPipeline(SlowRouter(delay=1)).budget_seconds == 12
+
+    @pytest.mark.asyncio
+    async def test_invalid_budget_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("PIPELINE_BUDGET_SECONDS", "not-a-number")
+        assert StoryPipeline(SlowRouter(delay=1)).budget_seconds == DEFAULT_BUDGET_SECONDS
+

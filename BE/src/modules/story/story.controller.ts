@@ -2,7 +2,6 @@ import { Controller, Post, Get, Param, Body, Query, Req, NotFoundException } fro
 import { Request } from 'express';
 import { StoryService } from './story.service';
 import { CreateStoryDto } from './dto/create-story.dto';
-import { StoryResponse } from './dto/story-response.dto';
 
 @Controller('story')
 export class StoryController {
@@ -41,8 +40,8 @@ export class StoryController {
   @Get(':id')
   async getById(@Param('id') id: string, @Req() req: Request) {
     const tenantId = (req as any).tenantId;
-    const story = await this.storyService.findById(id, tenantId);
-    if (!story) throw new NotFoundException('Story not found');
-    return StoryResponse.detail(story);
+    const detail = await this.storyService.getDetail(id, tenantId);
+    if (!detail) throw new NotFoundException('Story not found');
+    return detail;
   }
 }

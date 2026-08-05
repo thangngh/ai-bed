@@ -1,0 +1,15 @@
+# `npm ci` reinstalls these in the build stage.
+node_modules
+dist
+build
+coverage
+
+# The SPA has no server and no secrets; nothing here should reach the image,
+# and a stray .env would be baked into the bundle by Vite.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+*.log

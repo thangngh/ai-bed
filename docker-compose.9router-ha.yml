@@ -1,0 +1,218 @@
+# 9router HA layer for the Engine.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml up -d
+#
+# Runs N 9router replicas behind an nginx load balancer, and points the Engine
+# at the balancer instead of a single proxy.
+#
+# BEFORE FIRST USE
+# ----------------
+# Each replica mints its own API keys, and a key from one is 401 on the other
+# (measured). The balancer therefore injects the right key per replica, and
+# reads both from the environment:
+#
+#   node scripts/bootstrap-9router.mjs      # prints a key per replica
+#   # put them in the (gitignored) root .env:
+#   #   NINEROUTER_KEY_A=sk-...
+#   #   NINEROUTER_KEY_B=sk-...
+#
+# The Engine needs no CUSTOM_LLM_API_KEY of its own -- see deploy/9router-lb.conf.template.
+#
+# READ THIS BEFORE ASSUMING IT RAISES YOUR QUOTA
+# ----------------------------------------------
+# 9router's "OpenCode Free" provider is a passthrough to opencode.ai/zen.
+# Replicas here share the host's network namespace for egress: every
+# container NATs out through the host's single public IP. opencode.ai never
+# sees the 172.x container addresses. So if the upstream quota is scoped per
+# IP, N replicas on one host count as ONE client, not N.
+#
+# Each replica does get its own DATA_DIR (separate SQLite, separate accounts)
+# and its own MACHINE_ID_SALT, so replicas are distinct if the upstream
+# scopes by account or machine fingerprint instead. Which one applies is not
+# documented upstream -- run scripts/probe-9router-identity.mjs to find out
+# empirically before relying on this for capacity.
+#
+# What this compose file IS good for regardless: removing 9router as a single
+# point of failure, and surviving one replica hitting its own limit.
+
+services:
+  9router-a:
+    image: decolua/9router:latest
+    # Exposed directly so scripts/bootstrap-9router.mjs and
+    # scripts/probe-9router-identity.mjs can address a single replica; the
+    # Engine talks to the balancer, not to these.
+    ports:
+      - "20129:20128"
+    environment:
+      DATA_DIR: /app/data
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+      MACHINE_ID_SALT: replica-a
+      # A fresh 9router answers 401 on /v1/* until a password is actually
+      # persisted -- without this the container comes up "healthy" but serves
+      # nothing. Only applied on first init of the volume.
+      INITIAL_PASSWORD: ${NINEROUTER_PASSWORD:-aibedtime123}
+      # Give a replica its own egress IP by pointing it at a distinct
+      # outbound proxy. Without this, see the note above.
+      HTTP_PROXY: ${REPLICA_A_PROXY:-}
+      HTTPS_PROXY: ${REPLICA_A_PROXY:-}
+    volumes:
+      - 9router-a-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      # Probes the dashboard, not /v1/models: /v1/* requires an API key that
+      # only exists after onboarding, so a 401 there would keep a working
+      # replica permanently unhealthy. This checks process liveness only --
+      # "healthy" here does NOT mean the replica can complete a request.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:20128/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  9router-b:
+    image: decolua/9router:latest
+    ports:
+      - "20130:20128"
+    environment:
+      DATA_DIR: /app/data
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+      MACHINE_ID_SALT: replica-b
+      INITIAL_PASSWORD: ${NINEROUTER_PASSWORD:-aibedtime123}
+      HTTP_PROXY: ${REPLICA_B_PROXY:-}
+      HTTPS_PROXY: ${REPLICA_B_PROXY:-}
+    volumes:
+      - 9router-b-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      # Probes the dashboard, not /v1/models: /v1/* requires an API key that
+      # only exists after onboarding, so a 401 there would keep a working
+      # replica permanently unhealthy. This checks process liveness only --
+      # "healthy" here does NOT mean the replica can complete a request.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:20128/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  9router-lb:
+    image: nginx:1.27-alpine
+    # Deliberately NOT 20128: that is where a locally-installed 9router
+    # listens, and binding it here silently displaces it.
+    ports:
+      - "${NINEROUTER_LB_PORT:-20127}:20128"
+    environment:
+      # Rendered into the conf by the nginx image's envsubst entrypoint. An
+      # unset key makes that replica answer 401, which the balancer treats as
+      # a hard failure rather than failing over -- so set both.
+      NINEROUTER_KEY_A: ${NINEROUTER_KEY_A:?set NINEROUTER_KEY_A in .env, see scripts/bootstrap-9router.mjs}
+      NINEROUTER_KEY_B: ${NINEROUTER_KEY_B:?set NINEROUTER_KEY_B in .env, see scripts/bootstrap-9router.mjs}
+    volumes:
+      - ./deploy/9router-lb.conf.template:/etc/nginx/templates/default.conf.template:ro
+    depends_on:
+      9router-a:
+        condition: service_healthy
+      9router-b:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      # Proxies through to whichever replica the split picks, so this exercises
+      # the balancer's own path rather than just nginx being alive.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:20128/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  engine:
+    environment:
+      # Container-to-container, so this stays 20128 regardless of the host
+      # port the balancer is published on.
+      CUSTOM_LLM_URL: http://9router-lb:20128/v1/chat/completions
+      # Empty on purpose: the balancer replaces the Authorization header with
+      # the key belonging to the replica it picked. A key set here would be
+      # overwritten, and would be wrong for one of the two replicas anyway.
+      CUSTOM_LLM_API_KEY: ""
+      # `ag/gemini-3-flash-agent` is what the latency spec pins (4.6-5.9s per
+      # call) but it is an Antigravity model: it needs an account connected in
+      # each replica's dashboard and answers
+      # `No active credentials for provider: antigravity` without one. A
+      # freshly bootstrapped replica can only serve the anonymous `oc/` tier.
+      #
+      # Of that tier, deepseek-v4-flash is the one to pick: 5.6-9.8s on a short
+      # prompt against 6-21s for nemotron-3-ultra and 36-45s for
+      # north-mini-code, measured through the balancer and both replicas
+      # (scripts/probe-9router-models.mjs). Not the `opencode` combo, which
+      # picks among all three and inherits the slowest.
+      CUSTOM_LLM_MODEL: ${CUSTOM_LLM_MODEL:-oc/deepseek-v4-flash-free}
+      # The `oc/` models are reasoning models and emit content only after the
+      # chain of thought. At the client default of 4096 the writer stage came
+      # back `finish_reason: "length"`, `reasoning_tokens: 4096`,
+      # `content: ""` -- the entire budget spent thinking. The same prompt at
+      # 16000 finished with `stop` and a complete JSON story.
+      CUSTOM_LLM_MAX_TOKENS: ${CUSTOM_LLM_MAX_TOKENS:-16000}
+      # Thinking off by default: measured COMPLETE + faster (see docs/10 §4
+      # and scripts/probe-stream-thinking.py); nemotron answers 400 with it on.
+      CUSTOM_LLM_THINKING: ${CUSTOM_LLM_THINKING:-disabled}
+      # Production fallback order: deepseek (paid key) first, then openrouter
+      # (free, 2-3 keys in rotation), then custom (the 9router HA balancer) as
+      # the last resort. Names without credentials are skipped, so deepseek is
+      # harmless until DEEPSEEK_API_KEY is set.
+      LLM_CHAIN: ${LLM_CHAIN:-deepseek,openrouter,custom}
+      # Round-robin the entry point so neither provider absorbs every call --
+      # entering at the head every time is how OpenRouter's daily cap got spent
+      # in one afternoon of testing. The chain is rotated, not shortened: a
+      # call that enters at `custom` still falls through to `openrouter`.
+      LLM_ROTATE: ${LLM_ROTATE:-false}
+      # The free OpenRouter tier is much slower than the `ag/` model the
+      # latency spec was measured on: planner 10.9s + writer 31.5s +
+      # reviewer 9.9s = 52.3s on a good run, and the writer alone has been
+      # measured at 67.6s. At the spec's 45s every story came back a
+      # fallback, so the budget is raised to fit the provider that is
+      # actually available. Put it back to 45 with an `ag/` model connected.
+      #
+      # This plus MEMORY_EXTRACT_TIMEOUT_SECONDS plus HTTP overhead has to
+      # stay under ENGINE_TIMEOUT_MS, which in turn stays under the 240s
+      # FE/nginx and the SPA allow. At 120 + 20 against a 150s BE deadline a
+      # run came back 502 at 150.4s -- the one failure the budget exists to
+      # prevent -- and at 100 the writer ran out of time and returned the
+      # fallback. 150 + 15 under a 180s deadline holds both ends.
+      PIPELINE_BUDGET_SECONDS: ${PIPELINE_BUDGET_SECONDS:-150}
+      MEMORY_EXTRACT_TIMEOUT_SECONDS: ${MEMORY_EXTRACT_TIMEOUT_SECONDS:-15}
+    depends_on:
+      9router-lb:
+        condition: service_healthy
+
+  backend:
+    environment:
+      # Above the Engine's raised budget *plus* memory extraction, which runs
+      # after the pipeline and outside the budget (bounded separately by
+      # MEMORY_EXTRACT_TIMEOUT_SECONDS). Below the 240s that FE/nginx and the
+      # SPA allow. Anything tighter cuts off a slow-but-successful generation
+      # and returns it as a 502.
+      ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-180000}
+
+  # Cloudflare Tunnel (opt-in: start with
+  # `docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml
+  #    --profile cloudflared up -d cloudflared`). Brings the 9router HA
+  # balancer behind a Cloudflare domain (IP obscuration, WAF, caching, DDoS),
+  # so external clients need no port-forward / DDNS. The token is the named
+  # tunnel JWT from the Cloudflare dashboard; its ingress rules route the edge
+  # to `9router-lb:20128` (a host the container can reach on the compose net).
+  # This is INGRESS only -- it does NOT rotate the replicas' *egress* to
+  # opencode.ai; for that use REPLICA_A/B_PROXY (distinct egress) or a
+  # Cloudflare egress proxy. Token lives in the gitignored root .env.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["cloudflared"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      9router-lb:
+        condition: service_healthy
+
+
+volumes:
+  9router-a-data:
+  9router-b-data:

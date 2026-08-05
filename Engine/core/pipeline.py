@@ -1,5 +1,9 @@
+import asyncio
 import json
 import logging
+import os
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 from .validator import OutputValidator, ValidationResult
@@ -8,6 +12,36 @@ from .llm.router import LLMRouter
 from .prompts.registry import PromptRegistry
 
 logger = logging.getLogger(__name__)
+
+# Whole-generation deadline. Without one, the worst case is planner x3 +
+# writer x3 + reviewer + writer-retry x2 + reviewer = 10 LLM calls, each
+# allowed 300s by the client -- a ~50 minute ceiling, long after BE has given
+# up and returned a 502. Staying under BE's ENGINE_TIMEOUT_MS means a slow run
+# degrades to a fallback story instead of an error page.
+DEFAULT_BUDGET_SECONDS = 45.0
+
+# Don't start a stage that cannot plausibly finish; spend the remaining time
+# returning the fallback instead.
+MIN_STAGE_SECONDS = 5.0
+
+
+class BudgetExhausted(Exception):
+    """The generation ran out of its time budget."""
+
+
+def _budget_from_env() -> float:
+    raw = os.getenv("PIPELINE_BUDGET_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_BUDGET_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid PIPELINE_BUDGET_SECONDS=%r, using %s", raw, DEFAULT_BUDGET_SECONDS)
+        return DEFAULT_BUDGET_SECONDS
+    if value <= 0:
+        logger.warning("PIPELINE_BUDGET_SECONDS=%s is not positive, using %s", value, DEFAULT_BUDGET_SECONDS)
+        return DEFAULT_BUDGET_SECONDS
+    return value
 
 
 @dataclass
@@ -38,15 +72,37 @@ class StoryPipeline:
         self.validator = OutputValidator()
         self.registry = PromptRegistry()
         self.llm_calls = 0
+        self.budget_seconds = _budget_from_env()
+        self._deadline: float | None = None
 
     def _count_call(self):
         self.llm_calls += 1
 
+    def _remaining(self) -> float:
+        """Seconds left in the budget, or infinity outside a `run()`."""
+        if self._deadline is None:
+            return float("inf")
+        return self._deadline - time.monotonic()
+
     async def _call_llm(self, prompt: str, stage: str) -> str:
+        remaining = self._remaining()
+        if remaining < MIN_STAGE_SECONDS:
+            raise BudgetExhausted(
+                f"only {max(remaining, 0):.1f}s left before the {self.budget_seconds:.0f}s "
+                f"budget expires; not starting stage={stage}"
+            )
+
         self._count_call()
-        return await self.router.complete(prompt, stage)
+        # Cap the call at whatever is left, so a single slow provider cannot
+        # outlive the whole generation.
+        return await asyncio.wait_for(self.router.complete(prompt, stage), timeout=remaining)
 
     async def run(self, prompts: dict[str, str]) -> PipelineResult:
+        # The orchestrator holds one pipeline for the process lifetime, so
+        # without this the counter accumulates across requests and every
+        # response reports the running total instead of its own call count.
+        self.llm_calls = 0
+        self._deadline = time.monotonic() + self.budget_seconds
         try:
             planner_prompt = self.registry.load_planner()
             planner_raw = await self._call_retry(
@@ -62,7 +118,13 @@ class StoryPipeline:
             writer_prompt = self._build_writer_prompt(outline)
             writer_raw = await self._call_retry(
                 {"system": "", "user": writer_prompt}, "writer", max_retries=2,
-                validator=lambda d: self._validate_writer_full(d)
+                validator=lambda d: self._validate_writer_full(d),
+                retry_hint=(
+                    "Your previous story was rejected because it is missing an "
+                    "'interaction' section. Add at least one content item with "
+                    '{"type": "interaction", "text": "...", "prompt": "...", "order": N} '
+                    "that asks the child a question by name."
+                ),
             )
             if not writer_raw:
                 return self._fallback("Writer failed after retries")
@@ -70,6 +132,7 @@ class StoryPipeline:
             story = json.loads(writer_raw)
 
             review = await self._review_story(story)
+
             if review.get("safety_verdict") == "REJECTED":
                 logger.warning("Story REJECTED, retrying writer...")
                 writer_raw = await self._call_retry(
@@ -92,14 +155,21 @@ class StoryPipeline:
                 llm_calls=self.llm_calls,
             )
 
+        except (asyncio.TimeoutError, BudgetExhausted) as e:
+            reason = str(e) or f"generation exceeded its {self.budget_seconds:.0f}s budget"
+            logger.warning(f"Pipeline out of budget after {self.llm_calls} call(s): {reason}")
+            return self._fallback(reason)
+
         except Exception as e:
             logger.error(f"Pipeline failed: {e}")
             return self._fallback(str(e))
 
-    async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator) -> str | None:
+    async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator, retry_hint: str = "") -> str | None:
         for attempt in range(max_retries + 1):
             try:
                 combined = "\n\n".join([prompts.get("system", ""), prompts.get("developer", ""), prompts.get("user", "")])
+                if attempt > 0 and retry_hint:
+                    combined = f"{combined}\n\n{retry_hint}"
                 raw = await self._call_llm(combined, stage)
                 data = extract_json_block(raw)
                 result = validator(data)
@@ -107,6 +177,11 @@ class StoryPipeline:
                     return json.dumps(result.fixed_data or data)
                 else:
                     logger.warning(f"{stage} validation failed attempt {attempt}: {result.errors}")
+            except (asyncio.TimeoutError, BudgetExhausted):
+                # Out of time. A retry would take at least as long as the
+                # attempt that just ran out, so it can only make things worse;
+                # let run() fall back while there is still time to answer.
+                raise
             except Exception as e:
                 logger.warning(f"{stage} attempt {attempt} error: {e}")
         return None
@@ -136,7 +211,20 @@ class StoryPipeline:
         review_prompt = self.registry.load_reviewer().format(
             story=json.dumps(story, ensure_ascii=False)
         )
-        raw = await self._call_llm(review_prompt, "reviewer")
+        try:
+            raw = await self._call_llm(review_prompt, "reviewer")
+        except (asyncio.TimeoutError, BudgetExhausted):
+            # We already have a story; discarding it for a fallback would be a
+            # worse answer. Ship it FLAGGED rather than APPROVED -- the same
+            # treatment an unparseable review already gets below, so an
+            # unreviewed story is never silently marked safe.
+            logger.warning("Reviewer skipped: out of budget; returning story as FLAGGED")
+            return {
+                "safety_verdict": "FLAGGED",
+                "issues": [{"type": "budget", "severity": "low", "detail": "Review skipped: out of time budget"}],
+                "quality_score": 3,
+            }
+
         try:
             return extract_json_block(raw)
         except Exception:

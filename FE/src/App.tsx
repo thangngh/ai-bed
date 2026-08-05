@@ -13,7 +13,7 @@ import { AnalyticsScreen } from './components/AnalyticsScreen';
 import { AppScreen, BedtimeStory, FeedbackData, StoryFormInput, ChildProfile } from './types';
 import { SAMPLE_STORIES } from './data/sampleStories';
 import { generateBedtimeStory, mapSectionsToSegments } from './utils/storyGenerator';
-import { apiClient } from './utils/api';
+import { ApiError, apiClient } from './utils/api';
 import { childClient } from './utils/childClient';
 
 export default function App() {
@@ -143,10 +143,11 @@ export default function App() {
   };
 
   const getErrorType = (err: any): 'network' | 'timeout' | 'server' | 'unknown' => {
-    const msg = err?.message || '';
-    if (msg.includes('fetch') || msg.includes('Network')) return 'network';
-    if (msg.includes('timeout') || msg.includes('Timeout')) return 'timeout';
-    if (msg.includes('5') || msg.includes('server') || msg.includes('Server')) return 'server';
+    const code = err instanceof ApiError ? err.code : err?.message || '';
+    if (code === 'NETWORK_ERROR' || code === 'TENANT_INIT_FAILED') return 'network';
+    if (code === 'TIMEOUT' || code === 'ENGINE_TIMEOUT') return 'timeout';
+    if (code === 'ENGINE_ERROR' || code === 'ENGINE_UNAVAILABLE') return 'server';
+    if (err instanceof ApiError && err.status && err.status >= 500) return 'server';
     return 'unknown';
   };
 
@@ -199,7 +200,8 @@ export default function App() {
   const handleFeedbackSubmit = async (feedback: FeedbackData) => {
     try {
       const payload: Record<string, any> = {
-        story_id: feedback.storyId,
+        // `be-` is a client-side marker; the BE row is keyed by the bare uuid.
+        story_id: feedback.storyId.replace(/^be-/, ''),
         child_name: activeStory?.childName || '',
         rating: feedback.suitabilityRating,
         note: feedback.comment || '',
