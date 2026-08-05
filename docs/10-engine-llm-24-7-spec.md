@@ -222,7 +222,8 @@ correct on every model, thinking on/off) and `scripts/probe-writer-paragraphs.py
 ## 5. Definition of done
 
 - [x] 9router HA enabled, healthy, and failover-verified (table in §1).
-- [x] Engine chain defaults to 9router balancer first (`custom,deepseek,openrouter`).
+- [x] Engine chain defaults to `deepseek,openrouter,custom` — paid provider
+      first, 9router HA as the last resort (§2).
 - [x] DeepSeek client implemented, registered, env-documented, tested.
 - [x] Concrete per-request and per-IP rate limits enforced (BE queue/bucket +
       FE nginx).
@@ -233,4 +234,26 @@ correct on every model, thinking on/off) and `scripts/probe-writer-paragraphs.py
       ENGINE_TIMEOUT_MS=180000, so slow runs 502 (engine logs: "Pipeline out of budget after 1 call").
       Next lever: pin the fast model the latency spec measured (`ag/gemini-3-flash-agent`, 4.6-5.9s/call)
       per replica, or raise budgets past the 300s undici ceiling with a real timeout fix (docs/09 §1).
-      against the HA balancer and confirm zero 502s / p95 within budget — next step.
+- [x] Full-flow E2E re-run 2026-08-05 19:20 (+07) on the rebuilt image — **12/12 PASS**
+      (`test-results/e2e-flow-2026-08-05T12-20-28-553Z.json`): one real story in
+      **58.6s, 14 sections, `is_fallback=false`**, served end to end by the 9router HA
+      balancer after OpenRouter 429'd three times and was dropped from the chain.
+      Engine log, same run: `LLM fallback chain: openrouter -> custom` (no
+      `DEEPSEEK_API_KEY` locally) → planner 8.9s, writer 23.8s, reviewer 6.3s, all
+      `200 OK` via `http://9router-lb:20128`.
+
+### Stale-image trap (found 2026-08-05)
+
+The same E2E FAILED 30 minutes earlier for a reason that had nothing to do with the
+providers: the running Engine container was built **before** the validator floor was
+lowered, so it still demanded ≥2 paragraphs per section (`Section 'opening' has 1
+paragraph(s), minimum 2`), retried the writer, blew the 150s budget and fell back —
+while `Engine/core/validator.py` on disk already said `minimum 1`. `docker compose
+up -d` alone does not rebuild. After `up -d --build engine` the same run passed
+12/12. When a soak result contradicts the source, check the image before the chain.
+
+### Soak note
+
+The p95 121s / 20-of-20 figures in the table above were measured on the pre-rebuild
+image; re-run `scripts/integration-test.mjs` (20×4) on the current image before
+quoting them as the production projection.
