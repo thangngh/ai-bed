@@ -100,3 +100,32 @@ describe('index.css font wiring', () => {
     expect(stack.length, 'expected fallback families to remain after "Be Vietnam Pro"').toBeGreaterThan(1);
   });
 });
+
+describe('font delivery', () => {
+  it('preloads exactly one weight, and it exists on disk', () => {
+    const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
+    const preloads = [...html.matchAll(/<link[^>]*rel=["']preload["'][^>]*>/g)].map((m) => m[0]);
+
+    // More than one competes with the JS bundle for bandwidth on the critical
+    // path, which delays first paint instead of helping it.
+    expect(preloads).toHaveLength(1);
+
+    const tag = preloads[0];
+    expect(tag, 'fonts are fetched in CORS mode; without crossorigin the browser downloads the file twice').toContain('crossorigin');
+    expect(tag).toContain('as="font"');
+    expect(tag).toContain('type="font/woff2"');
+
+    const href = tag.match(/href=["']([^"']+)["']/)?.[1];
+    expect(href, 'preload tag needs an href').toBeDefined();
+    expect(href).toContain('regular');
+
+    const onDisk = join(process.cwd(), 'public', href!.replace(/^\//, ''));
+    expect(existsSync(onDisk), `preloaded ${href} does not exist at ${onDisk}`).toBe(true);
+  });
+
+  it('caches /fonts/ immutably in production', () => {
+    const conf = readFileSync(join(process.cwd(), 'nginx.conf'), 'utf8');
+    expect(conf).toMatch(/location\s+\/fonts\/\s*\{/);
+    expect(conf).toMatch(/Cache-Control[^;]*immutable/);
+  });
+});

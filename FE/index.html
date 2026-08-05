@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Truyện kể trước giờ ngủ cá nhân hoá cho bé 3-6 tuổi." />
+    <!-- Weight 400 is what the story body needs first. Exactly one preload:
+         more would contend with the JS bundle on the critical path. The
+         crossorigin attribute is mandatory even same-origin, because fonts are
+         fetched in CORS mode -- omit it and the file downloads twice. -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+          href="/fonts/be-vietnam-pro-v12-latin_vietnamese-regular.woff2" />
     <title>Bedtime Story Companion</title>
   </head>
   <body>
