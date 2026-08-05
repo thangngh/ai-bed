@@ -77,7 +77,26 @@ describe('index.css font wiring', () => {
   });
 
   it('overrides the Tailwind sans stack', () => {
+    // Order is load-bearing, not just presence: CSS resolves a font-family
+    // stack left-to-right, so "Be Vietnam Pro" must be the FIRST entry. A
+    // stack like `--font-sans: ui-sans-serif, "Be Vietnam Pro", ...` would
+    // satisfy a naive "does the value contain the string" check yet every
+    // browser would render in ui-sans-serif -- silently defeating the entire
+    // feature with no error anywhere. Extract the declaration's value and
+    // assert on its first comma-separated entry rather than pattern-matching
+    // the whole thing, so reordering is actually caught.
     const source = css();
-    expect(source).toMatch(/@theme\s*\{[^}]*--font-sans:[^;]*"Be Vietnam Pro"/s);
+    const declaration = source.match(/@theme\s*\{[^}]*--font-sans:\s*([^;]+);/s);
+    expect(declaration, '--font-sans declaration not found inside an @theme block').not.toBeNull();
+
+    const stack = declaration![1].split(',').map((entry) => entry.trim());
+    expect(
+      stack[0],
+      '"Be Vietnam Pro" must be the first entry in --font-sans, not merely present somewhere in it',
+    ).toBe('"Be Vietnam Pro"');
+
+    // The fallbacks are what render during the swap window and if the font
+    // request fails outright; losing them silently would also be a regression.
+    expect(stack.length, 'expected fallback families to remain after "Be Vietnam Pro"').toBeGreaterThan(1);
   });
 });
