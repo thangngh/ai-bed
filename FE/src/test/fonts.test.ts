@@ -104,7 +104,11 @@ describe('index.css font wiring', () => {
 describe('font delivery', () => {
   it('preloads exactly one weight, and it exists on disk', () => {
     const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
-    const preloads = [...html.matchAll(/<link[^>]*rel=["']preload["'][^>]*>/g)].map((m) => m[0]);
+    // rel's value may be unquoted in legal HTML (`rel=preload`), not just
+    // single- or double-quoted. A regex that only recognizes the quoted forms
+    // would silently miss a second, unquoted preload tag and let the
+    // toHaveLength(1) check below pass on a document that actually ships two.
+    const preloads = [...html.matchAll(/<link[^>]*rel=(?:"preload"|'preload'|preload\b)[^>]*>/g)].map((m) => m[0]);
 
     // More than one competes with the JS bundle for bandwidth on the critical
     // path, which delays first paint instead of helping it.
@@ -117,7 +121,10 @@ describe('font delivery', () => {
 
     const href = tag.match(/href=["']([^"']+)["']/)?.[1];
     expect(href, 'preload tag needs an href').toBeDefined();
-    expect(href).toContain('regular');
+    // Equality proves the preloaded file IS the regular weight, not merely
+    // that its name contains the substring "regular" (which a wrong file
+    // could also satisfy).
+    expect(href).toBe('/fonts/be-vietnam-pro-v12-latin_vietnamese-regular.woff2');
 
     const onDisk = join(process.cwd(), 'public', href!.replace(/^\//, ''));
     expect(existsSync(onDisk), `preloaded ${href} does not exist at ${onDisk}`).toBe(true);
