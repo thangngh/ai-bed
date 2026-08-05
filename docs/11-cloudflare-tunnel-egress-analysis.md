@@ -86,11 +86,33 @@ To actually multiply a per-IP quota you need one of:
   multiple Worker instances (anycast) -- possible but adds latency and the
   Workers still share egress unless routed over distinct NATs.
 
+## Zero Trust vs Quick (measured 2026-08-05)
+
+`--token <JWT>` (`t=a55bd88f...`) is a team Zero-Trust credential; if you **do
+not use Zero Trust**, the named tunnel has no ingress rule -> edge accepts auth
+(precheck PASS) but the data stream fails with `control stream encountered a
+failure while serving` because no origin is bound. That is the root cause
+measured in 2026-08-05, not an egress/network block -- the same host, engine
+container, and 9router-lb container all dial edge `198.41.200.53:7844` OK
+(return 0 / REACHABLE).
+
+**Fix used (no Zero Trust): a quick tunnel, no token.** Verified:
+`Registered tunnel connection connIndex=0` (log 05:44). `cloudflared` self-issues
+`https://<rand>.trycloudflare.net`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml --profile cloudflared-quick up -d cloudflared-quick
+```
+
+Quick tunnels are ephemeral (~24h) and need no account; read the container log
+for the URL. For a stable domain / WAF / long-lived use, create a free
+Cloudflare account (its Tunnel UI is the Free-tier dashboard; not billed as a
+paid Zero-Trust add-on) and bind ingress `http://9router-lb:20128`.
+
 ## Recommendation
 
-The tunnel is the right tool for **exposing/Protecting the HA edge** and
-hiding origin IP, and it pairs naturally with 2 outbound egress proxies to
-multiply quota. In production the cleanest path is simply to put
+The tunnel exposes/protection the HA edge and hides origin IP, and pairs
+naturally with 2 outbound egress proxies to multiply quota. In production In production the cleanest path is simply to put
 `DEEPSEEK_API_KEY` first in the chain (paid), which removes the free-tier
 rate-limit concern entirely; use the Tunnel + egress proxies only if you want
 to run the anonymous free tier as capacity. Keep the `cloudflared` service
