@@ -42,3 +42,24 @@ Point the dev proxy somewhere other than `http://localhost:3001` with
 `Dockerfile` builds the bundle and serves it from nginx, which also proxies
 `/api` to the `backend` service and falls back to `index.html` for client-side
 routes. Bring the whole stack up from the repo root with `docker compose up`.
+
+## Typeface
+
+The SPA ships [Be Vietnam Pro](https://github.com/bettergui/BeVietnamPro),
+self-hosted from `public/fonts/`. It is the one face in the shortlist designed
+for Vietnamese from the outset: its diacritics are drawn per combination rather
+than stacked mechanically, which is what keeps `ế ữ ặ` legible at the `text-2xl`
+size the story screen offers.
+
+- **Copyright** 2021 The Be Vietnam Pro Project Authors
+- **License** SIL Open Font License 1.1 — full text at `public/fonts/OFL.txt`,
+  served publicly at `/fonts/OFL.txt`
+- **Source** google-webfonts-helper, charsets `latin` + `vietnamese`, weights
+  400/500/600/700/800, `woff2`
+
+The OFL is copyleft over the font files only. It places no obligation on this
+repository's source: *"The requirement for fonts to remain under this license
+does not apply to any document created using the fonts or their derivatives."*
+
+Be Vietnam Pro declares **no Reserved Font Name**, so the subset files keep the
+original family name without a rename.
