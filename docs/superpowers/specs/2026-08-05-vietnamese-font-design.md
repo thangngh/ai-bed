@@ -102,11 +102,13 @@ Download from google-webfonts-helper with charsets `latin` + `vietnamese`,
 format `woff2`, the five weights above. Commit to `FE/public/fonts/`.
 
 The `vietnamese` charset is what carries `U+1EA0–U+1EF9` plus `ơ ư đ ă`; `latin`
-alone would break the language. If the download yields one file per
-(weight, charset) pair, keep the split and give each `@font-face` its
-`unicode-range` — the browser then fetches only what a glyph run needs. If it
-yields one merged file per weight, omit `unicode-range`. Either shape is correct;
-the generated CSS from the tool indicates which.
+alone would break the language.
+
+google-webfonts-helper merges the selected charsets into **one file per weight**,
+named `be-vietnam-pro-{version}-latin_vietnamese-{variant}.woff2`. Five files
+result, and no `unicode-range` is needed. The current published version is
+**v12** — confirm it at download time rather than assuming, since the version
+appears in every filename.
 
 ### 5.2 The one-line lever
 
@@ -137,7 +139,7 @@ screen needs first:
 
 ```html
 <link rel="preload" as="font" type="font/woff2" crossorigin
-      href="/fonts/be-vietnam-pro-v11-vietnamese-regular.woff2" />
+      href="/fonts/be-vietnam-pro-v12-latin_vietnamese-regular.woff2" />
 ```
 
 Exactly one. Preloading all five would contend with the JS bundle for bandwidth
@@ -146,8 +148,8 @@ on the critical path and delay first paint rather than help it.
 `crossorigin` is mandatory even same-origin: fonts are fetched in CORS mode, and
 omitting the attribute makes the browser download the file twice.
 
-The filename above is illustrative — use the actual name produced by the
-download, and keep the `-v11-` style version segment, which §5.4 depends on.
+Use the actual filename produced by the download; the `-v12-` version segment
+must survive into the served name, because §5.4 depends on it.
 
 ### 5.4 Cache headers
 
@@ -176,7 +178,13 @@ replacing the font means introducing a new name, never overwriting a served one.
 
 Diacritic rendering is a visual property; jsdom cannot assert it, and it is
 verified by eye against a checklist (§7). Two failure modes *are* mechanical,
-regress silently, and get automated tests in `FE/src/__tests__/fonts.spec.ts`:
+regress silently, and get automated tests in `FE/src/test/fonts.test.ts`.
+
+The filename matters: `FE/vitest.config.ts` sets
+`include: ['src/**/*.test.{ts,tsx}']`, so a file named `*.spec.ts` would be
+collected by nothing and pass forever without running. It sits in `src/test/`
+alongside the existing `smoke.test.ts`, the established home for tests not bound
+to a component.
 
 1. **Every `url()` in `index.css` resolves to a file that exists under
    `FE/public/fonts/`.** A wrong path or a file lost in a merge produces no
@@ -206,13 +214,13 @@ night mode:
 
 | File | Change |
 |---|---|
-| `FE/public/fonts/*.woff2` | new — 5 to 10 files depending on charset split |
+| `FE/public/fonts/*.woff2` | new — 5 files, one per weight |
 | `FE/public/fonts/OFL.txt` | new |
 | `FE/src/index.css` | `@font-face` block + `@theme` override |
 | `FE/index.html` | one `preload` tag |
 | `FE/nginx.conf` | one `location /fonts/` block |
 | `FE/README.md` | attribution section |
-| `FE/src/__tests__/fonts.spec.ts` | new |
+| `FE/src/test/fonts.test.ts` | new |
 
 No component file changes. No npm dependency added. No BE or Engine change.
 
