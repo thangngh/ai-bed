@@ -193,6 +193,26 @@ services:
       # and returns it as a 502.
       ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-180000}
 
+  # Cloudflare Tunnel (opt-in: start with
+  # `docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml
+  #    --profile cloudflared up -d cloudflared`). Brings the 9router HA
+  # balancer behind a Cloudflare domain (IP obscuration, WAF, caching, DDoS),
+  # so external clients need no port-forward / DDNS. The token is the named
+  # tunnel JWT from the Cloudflare dashboard; its ingress rules route the edge
+  # to `9router-lb:20128` (a host the container can reach on the compose net).
+  # This is INGRESS only -- it does NOT rotate the replicas' *egress* to
+  # opencode.ai; for that use REPLICA_A/B_PROXY (distinct egress) or a
+  # Cloudflare egress proxy. Token lives in the gitignored root .env.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["cloudflared"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      9router-lb:
+        condition: service_healthy
+
+
 volumes:
   9router-a-data:
   9router-b-data:
