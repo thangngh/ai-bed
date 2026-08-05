@@ -1,1 +1,59 @@
 @import "tailwindcss";
+
+/* Be Vietnam Pro, self-hosted from public/fonts. See FE/README.md for the
+   license and why this face was chosen over Lexend and Inter.
+
+   `swap` and not `optional`: the app exists to be read aloud, so a brief
+   reflow when the webfont arrives beats a paragraph that never renders in it
+   on a slow connection. */
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-v12-latin_vietnamese-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-v12-latin_vietnamese-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-v12-latin_vietnamese-600.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-v12-latin_vietnamese-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/be-vietnam-pro-v12-latin_vietnamese-800.woff2") format("woff2");
+}
+
+/* Tailwind v4 preflight sets font-family on `html` from --default-font-family,
+   which resolves to --font-sans. Overriding this one variable therefore reaches
+   every screen and every font-bold/semibold/medium/extrabold utility already in
+   the codebase -- which is why no component file changes.
+
+   The fallback chain is what renders during the swap window and if the font
+   request fails outright; every entry handles Vietnamese acceptably. */
+@theme {
+  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+}

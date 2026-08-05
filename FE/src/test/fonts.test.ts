@@ -43,3 +43,41 @@ describe('OFL compliance', () => {
     expect(text).toContain('SIL OPEN FONT LICENSE Version 1.1');
   });
 });
+
+describe('index.css font wiring', () => {
+  const css = () => readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+
+  it('declares one @font-face per required weight', () => {
+    const source = css();
+    const faces = source.match(/@font-face\s*\{[^}]*\}/g) ?? [];
+    expect(faces).toHaveLength(WEIGHTS.length);
+
+    const declared = faces
+      .map((face) => face.match(/font-weight:\s*(\d+)/)?.[1])
+      .sort();
+    expect(declared).toEqual(['400', '500', '600', '700', '800']);
+  });
+
+  it('points every url() at a file that exists', () => {
+    const urls = [...css().matchAll(/url\(["']?([^"')]+)["']?\)/g)].map((m) => m[1]);
+    expect(urls.length, 'expected at least one url() in index.css').toBeGreaterThan(0);
+
+    for (const url of urls) {
+      // Served from public/, so a leading /fonts/ maps to public/fonts/.
+      const onDisk = join(process.cwd(), 'public', url.replace(/^\//, ''));
+      expect(existsSync(onDisk), `${url} is referenced by index.css but ${onDisk} does not exist`).toBe(true);
+    }
+  });
+
+  it('swaps rather than hiding text while the font loads', () => {
+    const faces = css().match(/@font-face\s*\{[^}]*\}/g) ?? [];
+    for (const face of faces) {
+      expect(face, 'every @font-face needs font-display: swap').toMatch(/font-display:\s*swap/);
+    }
+  });
+
+  it('overrides the Tailwind sans stack', () => {
+    const source = css();
+    expect(source).toMatch(/@theme\s*\{[^}]*--font-sans:[^;]*"Be Vietnam Pro"/s);
+  });
+});
