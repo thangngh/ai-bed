@@ -94,16 +94,20 @@ class StoryPipeline:
         """Seconds a stage may take, holding `reserve` back for the reviewer.
 
         The reserve is only meaningful when the *whole* budget could ever
-        honour it. Comparing against `remaining` instead of `budget_seconds`
-        would also stand the reserve down mid-run whenever a stage is simply
-        running late -- exactly the case a reserved stage must yield in. So a
-        budget too small to honour the reserve at all (checked once, against
-        the fixed budget) stands it down; a budget that is merely running low
-        still has the reserve subtracted, and lets `_call_llm` refuse to
-        start the stage so the reviewer keeps its share of the clock.
+        honour it, so the decision is made once against the fixed
+        `budget_seconds` -- never against `remaining`. Comparing against
+        `remaining` would stand the reserve down mid-run whenever a stage is
+        simply running late, which is exactly the case a reserved stage must
+        yield in.
+
+        A budget that cannot leave a startable stage after the reserve stands
+        it down entirely: the reserve is never the reason a stage does not
+        start. A budget that is merely running low keeps the subtraction, and
+        `_call_llm` refuses to start the stage so the reviewer keeps its share
+        of the clock.
         """
         remaining = self._remaining()
-        if reserve >= self.budget_seconds:
+        if self.budget_seconds - reserve < MIN_STAGE_SECONDS:
             return remaining
         return remaining - reserve
 

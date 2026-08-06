@@ -208,7 +208,7 @@ class TestTimeBudget:
         assert StoryPipeline(SlowRouter(delay=1)).budget_seconds == DEFAULT_BUDGET_SECONDS
 
 
-from core.pipeline import BudgetExhausted, REVIEW_RESERVE_SECONDS
+from core.pipeline import BudgetExhausted, MIN_STAGE_SECONDS, REVIEW_RESERVE_SECONDS
 
 
 class TestReviewerReserve:
@@ -245,4 +245,13 @@ class TestReviewerReserve:
 
         # Same 10s, no reserve: the reviewer still runs.
         assert await pipeline._call_llm("x", "reviewer") == "{}"
+
+    def test_a_budget_just_over_the_reserve_still_starts_a_stage(self):
+        # 10 - 8 = 2s is under MIN_STAGE_SECONDS, so subtracting the reserve
+        # would refuse to start any stage: every run would fall back without
+        # ever calling an LLM, and the reviewer would gain nothing from the
+        # time held back. The reserve is never the reason a stage does not
+        # start, at any budget -- not only at the 6s of TestTimeBudget.
+        pipeline = self._pipeline(10)
+        assert pipeline._stage_allowance(REVIEW_RESERVE_SECONDS) >= MIN_STAGE_SECONDS
 
