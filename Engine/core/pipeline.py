@@ -84,6 +84,19 @@ class StoryPipeline:
             return float("inf")
         return self._deadline - time.monotonic()
 
+    @staticmethod
+    def _guardrails(prompts: dict[str, str]) -> str:
+        """Safety + language rules plus the age-specific storytelling rules.
+
+        registry.assemble() has always built these, but run() read only
+        prompts["user"], so system/default.txt ("STRICTLY FORBIDDEN -- no
+        violence, blood, horror ...") and developer/{3-4,5-6}.txt never
+        reached a model, leaving the 27-word blocklist in validator.py as the
+        only content guardrail.
+        """
+        tiers = (prompts.get("system", ""), prompts.get("developer", ""))
+        return "\n\n".join(t for t in tiers if t.strip())
+
     async def _call_llm(self, prompt: str, stage: str) -> str:
         remaining = self._remaining()
         if remaining < MIN_STAGE_SECONDS:
@@ -104,9 +117,11 @@ class StoryPipeline:
         self.llm_calls = 0
         self._deadline = time.monotonic() + self.budget_seconds
         try:
-            planner_prompt = self.registry.load_planner()
+            guardrails = self._guardrails(prompts)
             planner_raw = await self._call_retry(
-                {"system": planner_prompt, "developer": "", "user": prompts.get("user", "")},
+                {"system": guardrails,
+                 "developer": self.registry.load_planner(),
+                 "user": prompts.get("user", "")},
                 "planner", max_retries=2,
                 validator=lambda d: self.validator.validate_planner(d)
             )
@@ -117,7 +132,7 @@ class StoryPipeline:
 
             writer_prompt = self._build_writer_prompt(outline)
             writer_raw = await self._call_retry(
-                {"system": "", "user": writer_prompt}, "writer", max_retries=2,
+                {"system": guardrails, "user": writer_prompt}, "writer", max_retries=2,
                 validator=lambda d: self._validate_writer_full(d),
                 retry_hint=(
                     "Your previous story was rejected because it is missing an "
@@ -131,17 +146,17 @@ class StoryPipeline:
 
             story = json.loads(writer_raw)
 
-            review = await self._review_story(story)
+            review = await self._review_story(story, prompts.get("system", ""))
 
             if review.get("safety_verdict") == "REJECTED":
                 logger.warning("Story REJECTED, retrying writer...")
                 writer_raw = await self._call_retry(
-                    {"system": "", "user": writer_prompt}, "writer", max_retries=1,
+                    {"system": guardrails, "user": writer_prompt}, "writer", max_retries=1,
                     validator=lambda d: self.validator.validate_writer(d)
                 )
                 if writer_raw:
                     story = json.loads(writer_raw)
-                    review = await self._review_story(story)
+                    review = await self._review_story(story, prompts.get("system", ""))
 
             verdict = review.get("safety_verdict", "FLAGGED")
             if verdict == "REJECTED":
@@ -167,7 +182,10 @@ class StoryPipeline:
     async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator, retry_hint: str = "") -> str | None:
         for attempt in range(max_retries + 1):
             try:
-                combined = "\n\n".join([prompts.get("system", ""), prompts.get("developer", ""), prompts.get("user", "")])
+                combined = "\n\n".join(
+                    p for p in (prompts.get("system", ""), prompts.get("developer", ""),
+                                prompts.get("user", "")) if p.strip()
+                )
                 if attempt > 0 and retry_hint:
                     combined = f"{combined}\n\n{retry_hint}"
                 raw = await self._call_llm(combined, stage)
@@ -207,12 +225,13 @@ class StoryPipeline:
             logger.warning(f"Vietnamese purity: {purity_result.errors}")
         return schema_result
 
-    async def _review_story(self, story: dict) -> dict:
+    async def _review_story(self, story: dict, safety_rules: str = "") -> dict:
         review_prompt = self.registry.load_reviewer().format(
             story=json.dumps(story, ensure_ascii=False)
         )
+        prompt = "\n\n".join(p for p in (safety_rules, review_prompt) if p.strip())
         try:
-            raw = await self._call_llm(review_prompt, "reviewer")
+            raw = await self._call_llm(prompt, "reviewer")
         except (asyncio.TimeoutError, BudgetExhausted):
             # We already have a story; discarding it for a fallback would be a
             # worse answer. Ship it FLAGGED rather than APPROVED -- the same
