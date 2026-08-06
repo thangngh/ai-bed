@@ -102,3 +102,11 @@ class TestPromptRegistry:
         assert "khủng long" in prompts["user"]
         assert "[{" not in prompts["user"]
         assert '"type"' not in prompts["user"]
+
+    def test_planner_has_no_unfilled_placeholders(self):
+        # load_planner() never calls .format(), so any {placeholder} left in
+        # the template reaches the model as literal text.
+        prompt = PromptRegistry().load_planner()
+        for name in ("{childName}", "{age}", "{theme}", "{goal}", "{mood}",
+                     "{favoriteCharacter}", "{memoryContext}"):
+            assert name not in prompt, f"{name} is never formatted by load_planner()"
