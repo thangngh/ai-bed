@@ -24,6 +24,12 @@ DEFAULT_BUDGET_SECONDS = 45.0
 # returning the fallback instead.
 MIN_STAGE_SECONDS = 5.0
 
+# The reviewer is the only safety gate on generated text, so it must not be
+# the stage that loses the race for the budget. Earlier stages are capped at
+# (remaining - REVIEW_RESERVE_SECONDS), which guarantees that whenever the
+# writer succeeded there is still time to review what it wrote.
+REVIEW_RESERVE_SECONDS = 8.0
+
 
 class BudgetExhausted(Exception):
     """The generation ran out of its time budget."""
@@ -84,6 +90,23 @@ class StoryPipeline:
             return float("inf")
         return self._deadline - time.monotonic()
 
+    def _stage_allowance(self, reserve: float) -> float:
+        """Seconds a stage may take, holding `reserve` back for the reviewer.
+
+        The reserve is only meaningful when the *whole* budget could ever
+        honour it. Comparing against `remaining` instead of `budget_seconds`
+        would also stand the reserve down mid-run whenever a stage is simply
+        running late -- exactly the case a reserved stage must yield in. So a
+        budget too small to honour the reserve at all (checked once, against
+        the fixed budget) stands it down; a budget that is merely running low
+        still has the reserve subtracted, and lets `_call_llm` refuse to
+        start the stage so the reviewer keeps its share of the clock.
+        """
+        remaining = self._remaining()
+        if reserve >= self.budget_seconds:
+            return remaining
+        return remaining - reserve
+
     @staticmethod
     def _guardrails(prompts: dict[str, str]) -> str:
         """Safety + language rules plus the age-specific storytelling rules.
@@ -97,18 +120,18 @@ class StoryPipeline:
         tiers = (prompts.get("system", ""), prompts.get("developer", ""))
         return "\n\n".join(t for t in tiers if t.strip())
 
-    async def _call_llm(self, prompt: str, stage: str) -> str:
-        remaining = self._remaining()
-        if remaining < MIN_STAGE_SECONDS:
+    async def _call_llm(self, prompt: str, stage: str, reserve: float = 0.0) -> str:
+        allowance = self._stage_allowance(reserve)
+        if allowance < MIN_STAGE_SECONDS:
             raise BudgetExhausted(
-                f"only {max(remaining, 0):.1f}s left before the {self.budget_seconds:.0f}s "
+                f"only {max(allowance, 0):.1f}s left before the {self.budget_seconds:.0f}s "
                 f"budget expires; not starting stage={stage}"
             )
 
         self._count_call()
         # Cap the call at whatever is left, so a single slow provider cannot
         # outlive the whole generation.
-        return await asyncio.wait_for(self.router.complete(prompt, stage), timeout=remaining)
+        return await asyncio.wait_for(self.router.complete(prompt, stage), timeout=allowance)
 
     async def run(self, prompts: dict[str, str]) -> PipelineResult:
         # The orchestrator holds one pipeline for the process lifetime, so
@@ -123,7 +146,8 @@ class StoryPipeline:
                  "developer": self.registry.load_planner(),
                  "user": prompts.get("user", "")},
                 "planner", max_retries=2,
-                validator=lambda d: self.validator.validate_planner(d)
+                validator=lambda d: self.validator.validate_planner(d),
+                reserve=REVIEW_RESERVE_SECONDS,
             )
             if not planner_raw:
                 return self._fallback("Planner failed after retries")
@@ -140,6 +164,7 @@ class StoryPipeline:
                     '{"type": "interaction", "text": "...", "prompt": "...", "order": N} '
                     "that asks the child a question by name."
                 ),
+                reserve=REVIEW_RESERVE_SECONDS,
             )
             if not writer_raw:
                 return self._fallback("Writer failed after retries")
@@ -152,7 +177,8 @@ class StoryPipeline:
                 logger.warning("Story REJECTED, retrying writer...")
                 writer_raw = await self._call_retry(
                     {"system": guardrails, "user": writer_prompt}, "writer", max_retries=1,
-                    validator=lambda d: self.validator.validate_writer(d)
+                    validator=lambda d: self.validator.validate_writer(d),
+                    reserve=REVIEW_RESERVE_SECONDS,
                 )
                 if writer_raw:
                     story = json.loads(writer_raw)
@@ -179,7 +205,7 @@ class StoryPipeline:
             logger.error(f"Pipeline failed: {e}")
             return self._fallback(str(e))
 
-    async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator, retry_hint: str = "") -> str | None:
+    async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator, retry_hint: str = "", reserve: float = 0.0) -> str | None:
         for attempt in range(max_retries + 1):
             try:
                 combined = "\n\n".join(
@@ -188,7 +214,7 @@ class StoryPipeline:
                 )
                 if attempt > 0 and retry_hint:
                     combined = f"{combined}\n\n{retry_hint}"
-                raw = await self._call_llm(combined, stage)
+                raw = await self._call_llm(combined, stage, reserve=reserve)
                 data = extract_json_block(raw)
                 result = validator(data)
                 if result.valid:
