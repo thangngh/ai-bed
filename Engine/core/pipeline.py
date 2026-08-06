@@ -35,6 +35,13 @@ REVIEW_RESERVE_SECONDS = 8.0
 BLOCKING_ISSUE_TYPES = {"safety"}
 BLOCKING_SEVERITIES = {"high"}
 
+# Sent back to the reviewer once when its first reply could not be parsed as
+# a JSON object, before giving up and treating the story as UNREVIEWED.
+REVIEW_RETRY_HINT = (
+    "Your previous reply could not be parsed. Reply with the JSON object "
+    "only -- no prose, no code fences."
+)
+
 
 class BudgetExhausted(Exception):
     """The generation ran out of its time budget."""
@@ -290,28 +297,48 @@ class StoryPipeline:
         return schema_result
 
     async def _review_story(self, story: dict, safety_rules: str = "") -> dict:
+        """Ask the reviewer, re-asking once if the reply cannot be parsed.
+
+        `_gate_verdict` blocks on UNREVIEWED, so every failure path here
+        returns that shape rather than FLAGGED -- "could not check" must not
+        be treated as "checked and fine".
+        """
         review_prompt = self.registry.load_reviewer().format(
             story=json.dumps(story, ensure_ascii=False)
         )
-        prompt = "\n\n".join(p for p in (safety_rules, review_prompt) if p.strip())
-        try:
-            raw = await self._call_llm(prompt, "reviewer")
-        except (asyncio.TimeoutError, BudgetExhausted):
-            # We already have a story; discarding it for a fallback would be a
-            # worse answer. Ship it FLAGGED rather than APPROVED -- the same
-            # treatment an unparseable review already gets below, so an
-            # unreviewed story is never silently marked safe.
-            logger.warning("Reviewer skipped: out of budget; returning story as FLAGGED")
-            return {
-                "safety_verdict": "FLAGGED",
-                "issues": [{"type": "budget", "severity": "low", "detail": "Review skipped: out of time budget"}],
-                "quality_score": 3,
-            }
+        base = "\n\n".join(p for p in (safety_rules, review_prompt) if p.strip())
 
-        try:
-            return extract_json_block(raw)
-        except Exception:
-            return {"safety_verdict": "FLAGGED", "issues": [{"type": "format", "severity": "low", "detail": "Cannot parse review"}], "quality_score": 3}
+        for attempt in range(2):
+            prompt = base if attempt == 0 else f"{base}\n\n{REVIEW_RETRY_HINT}"
+            try:
+                raw = await self._call_llm(prompt, "reviewer")
+            except (asyncio.TimeoutError, BudgetExhausted):
+                # No safety signal at all. UNREVIEWED is blocking in
+                # _gate_verdict: an unreviewed story is exactly what the
+                # reviewer exists to stop, and the old code shipped it.
+                logger.warning("Reviewer skipped: out of budget")
+                return {
+                    "safety_verdict": "UNREVIEWED",
+                    "issues": [{"type": "budget", "severity": "high",
+                                "detail": "Review skipped: out of time budget"}],
+                    "quality_score": 0,
+                }
+            try:
+                parsed = extract_json_block(raw)
+            except Exception:
+                logger.warning("Reviewer attempt %d returned no parseable JSON", attempt)
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+            logger.warning("Reviewer attempt %d returned %s, not an object",
+                           attempt, type(parsed).__name__)
+
+        return {
+            "safety_verdict": "UNREVIEWED",
+            "issues": [{"type": "format", "severity": "high",
+                        "detail": "Cannot parse review"}],
+            "quality_score": 0,
+        }
 
     def _fallback(self, reason: str) -> PipelineResult:
         return PipelineResult(

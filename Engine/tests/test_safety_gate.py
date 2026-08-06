@@ -225,3 +225,39 @@ class TestGateEndToEnd:
         result = await pipeline.run(real_prompts())
 
         assert result.is_fallback is True
+
+
+class TestUnparseableReview:
+    @pytest.mark.asyncio
+    async def test_reviewer_is_re_asked_exactly_once(self):
+        # The writer retry is made to fail so the run has a single review
+        # round: two reviewer calls total means one re-ask.
+        def writer(call_n):
+            return WRITER_OK if call_n == 1 else "{}"
+
+        router = RecordingRouter({
+            "planner": PLANNER_OK, "writer": writer, "reviewer": "I think it is fine!",
+        })
+        result = await StoryPipeline(router).run(real_prompts())
+
+        assert router.count("reviewer") == 2
+        assert "JSON object" in router.prompts_for("reviewer")[1]
+        assert result.is_fallback is True
+
+    @pytest.mark.asyncio
+    async def test_review_returning_a_json_array_does_not_raise(self):
+        # extract_json_block happily returns a list; review.get() then raised
+        # AttributeError, which surfaced as a fallback carrying the exception
+        # text in the error field.
+        def writer(call_n):
+            return WRITER_OK if call_n == 1 else "{}"
+
+        router = RecordingRouter({
+            "planner": PLANNER_OK, "writer": writer,
+            "reviewer": '[{"safety_verdict": "APPROVED"}]',
+        })
+        result = await StoryPipeline(router).run(real_prompts())
+
+        assert result.is_fallback is True
+        assert "AttributeError" not in result.error
+        assert "not approved" in result.error
