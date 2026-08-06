@@ -4,6 +4,7 @@ import time
 import pytest
 from core.pipeline import (
     BudgetExhausted,
+    FALLBACK_STORY,
     StoryPipeline,
 )
 from core.prompts.registry import PromptRegistry
@@ -125,3 +126,102 @@ class TestGuardrailsReachTheModel:
         await StoryPipeline(router).run({})
 
         assert not router.prompts_for("planner")[0].startswith("\n")
+
+
+class TestVerdictGate:
+    """Unit-level: every outcome the reviewer can produce."""
+
+    def _gate(self, review: dict):
+        return StoryPipeline(RecordingRouter({}))._gate_verdict(review)
+
+    def test_approved_ships(self):
+        assert self._gate({"safety_verdict": "APPROVED", "issues": []}) == ("APPROVED", "")
+
+    def test_rejected_blocks(self):
+        verdict, blocked = self._gate({"safety_verdict": "REJECTED"})
+        assert (verdict, bool(blocked)) == ("REJECTED", True)
+
+    def test_flagged_for_language_only_ships(self):
+        verdict, blocked = self._gate({"safety_verdict": "FLAGGED", "issues": [
+            {"type": "language", "severity": "low", "detail": "English word"},
+        ]})
+        assert (verdict, blocked) == ("FLAGGED", "")
+
+    def test_flagged_with_a_safety_issue_blocks(self):
+        _, blocked = self._gate({"safety_verdict": "FLAGGED", "issues": [
+            {"type": "safety", "severity": "low", "detail": "mild peril"},
+        ]})
+        assert blocked
+
+    def test_flagged_with_a_high_severity_issue_blocks(self):
+        _, blocked = self._gate({"safety_verdict": "FLAGGED", "issues": [
+            {"type": "quality", "severity": "high", "detail": "incoherent"},
+        ]})
+        assert blocked
+
+    def test_flagged_without_a_reason_blocks(self):
+        # A reviewer that flags a story but will not say why has given no
+        # reason to trust it.
+        _, blocked = self._gate({"safety_verdict": "FLAGGED", "issues": []})
+        assert blocked
+
+    def test_missing_verdict_blocks(self):
+        verdict, blocked = self._gate({"issues": []})
+        assert (verdict, bool(blocked)) == ("UNREVIEWED", True)
+
+    def test_unknown_verdict_blocks(self):
+        _, blocked = self._gate({"safety_verdict": "APPROVED_WITH_NOTES"})
+        assert blocked
+
+    def test_verdict_is_case_insensitive(self):
+        assert self._gate({"safety_verdict": "approved"}) == ("APPROVED", "")
+
+
+class TestGateEndToEnd:
+    @pytest.mark.asyncio
+    async def test_safety_flag_falls_back_instead_of_shipping(self):
+        router = RecordingRouter({
+            "planner": PLANNER_OK, "writer": WRITER_OK,
+            "reviewer": '{"safety_verdict": "FLAGGED", "issues": [{"type": "safety", "severity": "medium", "detail": "scary"}], "quality_score": 3}',
+        })
+        result = await StoryPipeline(router).run(real_prompts())
+
+        assert result.is_fallback is True
+        assert result.safety_verdict == "FALLBACK"
+        assert result.title == FALLBACK_STORY["title"]
+        # One writer retry was attempted before giving up.
+        assert router.count("writer") >= 2
+
+    @pytest.mark.asyncio
+    async def test_language_flag_still_ships(self):
+        router = RecordingRouter({
+            "planner": PLANNER_OK, "writer": WRITER_OK,
+            "reviewer": '{"safety_verdict": "FLAGGED", "issues": [{"type": "language", "severity": "low", "detail": "English word"}], "quality_score": 3}',
+        })
+        result = await StoryPipeline(router).run(real_prompts())
+
+        assert result.is_fallback is False
+        assert result.safety_verdict == "FLAGGED"
+        assert router.count("writer") == 1
+
+    @pytest.mark.asyncio
+    async def test_unreviewed_story_is_not_shipped(self):
+        # Budget too small for the reviewer, but large enough for planner and
+        # writer: the old code shipped this as FLAGGED.
+        router = RecordingRouter({
+            "planner": PLANNER_OK, "writer": WRITER_OK, "reviewer": REVIEW_APPROVED,
+        })
+        pipeline = StoryPipeline(router)
+        pipeline.budget_seconds = 45
+
+        original = pipeline._review_story
+
+        async def unreviewed(story, safety_rules=""):
+            return {"safety_verdict": "UNREVIEWED",
+                    "issues": [{"type": "budget", "severity": "high", "detail": "skipped"}],
+                    "quality_score": 0}
+
+        pipeline._review_story = unreviewed
+        result = await pipeline.run(real_prompts())
+
+        assert result.is_fallback is True

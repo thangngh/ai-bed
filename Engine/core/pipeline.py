@@ -30,6 +30,11 @@ MIN_STAGE_SECONDS = 5.0
 # writer succeeded there is still time to review what it wrote.
 REVIEW_RESERVE_SECONDS = 8.0
 
+# A review that flags only language, structure or quality is not a safety
+# signal; failing closed on those would trade availability for nothing.
+BLOCKING_ISSUE_TYPES = {"safety"}
+BLOCKING_SEVERITIES = {"high"}
+
 
 class BudgetExhausted(Exception):
     """The generation ran out of its time budget."""
@@ -176,21 +181,22 @@ class StoryPipeline:
             story = json.loads(writer_raw)
 
             review = await self._review_story(story, prompts.get("system", ""))
+            verdict, blocked = self._gate_verdict(review)
 
-            if review.get("safety_verdict") == "REJECTED":
-                logger.warning("Story REJECTED, retrying writer...")
+            if blocked:
+                logger.warning("Story not approved (%s: %s), retrying writer...", verdict, blocked)
                 writer_raw = await self._call_retry(
                     {"system": guardrails, "user": writer_prompt}, "writer", max_retries=1,
-                    validator=lambda d: self.validator.validate_writer(d),
                     reserve=REVIEW_RESERVE_SECONDS,
+                    validator=lambda d: self.validator.validate_writer(d)
                 )
                 if writer_raw:
                     story = json.loads(writer_raw)
                     review = await self._review_story(story, prompts.get("system", ""))
+                    verdict, blocked = self._gate_verdict(review)
 
-            verdict = review.get("safety_verdict", "FLAGGED")
-            if verdict == "REJECTED":
-                return self._fallback("Story still rejected after retry")
+            if blocked:
+                return self._fallback(f"story not approved: {blocked}")
 
             return PipelineResult(
                 success=True,
@@ -237,6 +243,34 @@ class StoryPipeline:
     def _build_writer_prompt(self, outline: dict) -> str:
         template = self.registry.load_writer()
         return template.format(outline=json.dumps(outline, ensure_ascii=False))
+
+    def _gate_verdict(self, review: dict) -> tuple[str, str]:
+        """(verdict, block_reason); block_reason is empty when it may ship.
+
+        Allow-list, not deny-list. The old check blocked only REJECTED, so a
+        FLAGGED story, an unparseable review and a review that never ran all
+        reached the child. "Could not check" is not "is fine".
+        """
+        verdict = str(review.get("safety_verdict") or "").upper()
+
+        if verdict == "APPROVED":
+            return verdict, ""
+
+        if verdict == "FLAGGED":
+            issues = [i for i in (review.get("issues") or []) if isinstance(i, dict)]
+            if not issues:
+                return verdict, "flagged without a stated reason"
+            for issue in issues:
+                if str(issue.get("type", "")).lower() in BLOCKING_ISSUE_TYPES:
+                    return verdict, "flagged a safety issue"
+                if str(issue.get("severity", "")).lower() in BLOCKING_SEVERITIES:
+                    return verdict, "flagged a high-severity issue"
+            return verdict, ""
+
+        if verdict == "REJECTED":
+            return verdict, "review rejected the story"
+
+        return verdict or "UNREVIEWED", f"no usable safety verdict ({verdict or 'missing'})"
 
     def _validate_writer_full(self, data: dict):
         schema_result = self.validator.validate_writer(data)
