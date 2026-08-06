@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   BookOpen,
   RotateCcw,
@@ -6,8 +6,8 @@ import {
   MessageSquare,
   Bookmark,
   CheckCircle2,
-  Volume2,
-  VolumeX,
+  // Volume2,  // TTS tạm tắt — xem khối "Voice Text to Speech" bên dưới
+  // VolumeX,
   Type,
   HelpCircle,
   Heart,
@@ -36,44 +36,51 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
 }) => {
   const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>('large');
   const [askedPrompts, setAskedPrompts] = useState<{ [key: string]: boolean }>({});
-  const [isSpeaking, setIsSpeaking] = useState(false);
-
-  // Stop speech when component unmounts
-  useEffect(() => {
-    return () => {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
 
   const togglePromptChecked = (key: string) => {
     setAskedPrompts((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const toggleSpeech = () => {
-    if (!('speechSynthesis' in window)) {
-      alert('Trình duyệt của bạn không hỗ trợ đọc tự động.');
-      return;
-    }
-
-    if (isSpeaking) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-    } else {
-      const fullText = `${story.title}. ${story.segments.opening}. ${story.segments.situation}. ${story.segments.challenge}. ${story.segments.ending}. ${story.segments.moralSummary}`;
-      const utterance = new SpeechSynthesisUtterance(fullText);
-      utterance.lang = 'vi-VN';
-      utterance.rate = 0.85; // Soothing slow rate for bedtime
-      utterance.pitch = 1.0;
-
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-
-      window.speechSynthesis.speak(utterance);
-      setIsSpeaking(true);
-    }
-  };
+  // --- TTS tạm tắt ---------------------------------------------------------
+  // Web Speech API phụ thuộc voice của hệ điều hành: Windows thường không có
+  // vi-VN, còn nơi có thì giọng máy quá cứng cho truyện trước giờ ngủ. Giữ lại
+  // nguyên khối để tham chiếu cho đến khi chốt hướng giọng đọc thuần Việt.
+  //
+  // const [isSpeaking, setIsSpeaking] = useState(false);
+  //
+  // // Stop speech when component unmounts
+  // useEffect(() => {
+  //   return () => {
+  //     if ('speechSynthesis' in window) {
+  //       window.speechSynthesis.cancel();
+  //     }
+  //   };
+  // }, []);
+  //
+  // const toggleSpeech = () => {
+  //   if (!('speechSynthesis' in window)) {
+  //     alert('Trình duyệt của bạn không hỗ trợ đọc tự động.');
+  //     return;
+  //   }
+  //
+  //   if (isSpeaking) {
+  //     window.speechSynthesis.cancel();
+  //     setIsSpeaking(false);
+  //   } else {
+  //     const fullText = `${story.title}. ${story.segments.opening}. ${story.segments.situation}. ${story.segments.challenge}. ${story.segments.ending}. ${story.segments.moralSummary}`;
+  //     const utterance = new SpeechSynthesisUtterance(fullText);
+  //     utterance.lang = 'vi-VN';
+  //     utterance.rate = 0.85; // Soothing slow rate for bedtime
+  //     utterance.pitch = 1.0;
+  //
+  //     utterance.onend = () => setIsSpeaking(false);
+  //     utterance.onerror = () => setIsSpeaking(false);
+  //
+  //     window.speechSynthesis.speak(utterance);
+  //     setIsSpeaking(true);
+  //   }
+  // };
+  // -------------------------------------------------------------------------
 
   // Font size classes calculation
   const getTextSizeClass = () => {
@@ -124,7 +131,7 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
             </span>
           </button>
 
-          {/* Voice Text to Speech */}
+          {/* Voice Text to Speech — tạm tắt, xem ghi chú ở đầu component
           <button
             id="btn-story-tts"
             onClick={toggleSpeech}
@@ -138,6 +145,7 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
             {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-500" />}
             <span className="hidden sm:inline text-[10px]">{isSpeaking ? 'Đang đọc' : 'Đọc tự động'}</span>
           </button>
+          */}
 
           {/* Save Story */}
           <button
