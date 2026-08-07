@@ -104,16 +104,18 @@ Không dùng lại `FeedbackService`: nó phụ thuộc `ChildService` + `Memory
 
 ## 5. API
 
-Mọi response dùng envelope sẵn có (`common/dto/api-response.dto.ts`); `HttpExceptionFilter` đã bọc mọi `HttpException` thành `{ error: { code, message }, request_id }`.
+**Quy ước response của repo này:** controller trả **object trần**, không bọc `{ data: ... }` — xem `story.controller.ts:30`, `tenant.controller.ts:11`, `analytics.controller.ts`. Interface `SuccessResponse<T>` trong `common/dto/api-response.dto.ts` được khai báo nhưng chưa endpoint nào dùng. Admin theo đúng quy ước đang chạy, không tự dựng envelope mới.
+
+Lỗi thì ngược lại — `HttpExceptionFilter` bọc mọi `HttpException` thành `{ error: { code, message }, request_id }`, và admin dùng nguyên.
 
 ### 5.1 `POST /admin/login`
 
 ```
 Body: { "username": "thang", "password": "..." }
 
-200 { "data": { "token": "<jwt>",
-                "expires_at": "2026-08-06T20:00:00.000Z",
-                "admin": { "admin_id": "...", "username": "thang" } } }
+200 { "token": "<jwt>",
+      "expires_at": "2026-08-06T20:00:00.000Z",
+      "admin": { "admin_id": "...", "username": "thang" } }
 401 { "error": { "code": "INVALID_CREDENTIALS", "message": "Sai tài khoản hoặc mật khẩu" } }
 429 { "error": { "code": "LOGIN_THROTTLED", "message": "...", "retry_after": 840 } }
 ```
@@ -131,11 +133,11 @@ Cần `Authorization: Bearer <token>`.
 ```
 ?limit=20&offset=0&rating=5&has_note=1&from=2026-08-01&to=2026-08-06
 
-200 { "data": { "items": [...], "total": 137, "limit": 20, "offset": 0 } }
+200 { "items": [...], "total": 137, "limit": 20, "offset": 0 }
 401 { "error": { "code": "UNAUTHORIZED", "message": "Phiên không hợp lệ hoặc đã hết hạn" } }
 ```
 
-Dùng lại `PaginatedResponse<T>` (`common/dto/pagination.dto.ts`) — `limit`/`offset`, không phải `page`.
+Body chính là `PaginatedResponse<T>` (`common/dto/pagination.dto.ts`) — `limit`/`offset`, không phải `page`.
 
 | Tham số | Kiểu | Mặc định | Ghi chú |
 |---|---|---|---|
