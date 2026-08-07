@@ -8,8 +8,6 @@ Given the child's profile and memory context, create a story outline with:
 3. story_structure.moral — the lesson (1 sentence)
 4. key_characters — array of character names
 
-Child info: {childName}, age {age}, theme {theme}, goal {goal}, mood {mood}.
-{favoriteCharacter}
-{memoryContext}
+The child's profile and memory context are supplied below this instruction.
 
 Output ONLY JSON matching this schema. Never add text outside JSON.
