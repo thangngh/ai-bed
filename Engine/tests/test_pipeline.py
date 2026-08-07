@@ -207,3 +207,51 @@ class TestTimeBudget:
         monkeypatch.setenv("PIPELINE_BUDGET_SECONDS", "not-a-number")
         assert StoryPipeline(SlowRouter(delay=1)).budget_seconds == DEFAULT_BUDGET_SECONDS
 
+
+from core.pipeline import BudgetExhausted, MIN_STAGE_SECONDS, REVIEW_RESERVE_SECONDS
+
+
+class TestReviewerReserve:
+    def _pipeline(self, budget: float) -> StoryPipeline:
+        pipeline = StoryPipeline(MockRouter({}))
+        pipeline.budget_seconds = budget
+        pipeline._deadline = time.monotonic() + budget
+        return pipeline
+
+    def test_reserve_is_held_back_from_writing_stages(self):
+        pipeline = self._pipeline(150)
+        allowance = pipeline._stage_allowance(REVIEW_RESERVE_SECONDS)
+        assert 150 - REVIEW_RESERVE_SECONDS - 1 <= allowance <= 150 - REVIEW_RESERVE_SECONDS
+
+    def test_reviewer_gets_the_whole_remainder(self):
+        pipeline = self._pipeline(150)
+        assert 149 <= pipeline._stage_allowance(0.0) <= 150
+
+    def test_reserve_is_ignored_when_the_budget_cannot_honour_it(self):
+        # A 6s budget cannot spare 8s. Holding it back would turn every run
+        # into a fallback without ever reaching the reviewer either, so the
+        # reserve stands down -- this is what keeps the four TestTimeBudget
+        # tests above valid.
+        pipeline = self._pipeline(6)
+        assert 5 <= pipeline._stage_allowance(REVIEW_RESERVE_SECONDS) <= 6
+
+    @pytest.mark.asyncio
+    async def test_a_reserved_stage_yields_to_the_reviewer(self):
+        pipeline = self._pipeline(45)
+        pipeline._deadline = time.monotonic() + 10        # 10s left of 45
+
+        with pytest.raises(BudgetExhausted):
+            await pipeline._call_llm("x", "writer", reserve=REVIEW_RESERVE_SECONDS)
+
+        # Same 10s, no reserve: the reviewer still runs.
+        assert await pipeline._call_llm("x", "reviewer") == "{}"
+
+    def test_a_budget_just_over_the_reserve_still_starts_a_stage(self):
+        # 10 - 8 = 2s is under MIN_STAGE_SECONDS, so subtracting the reserve
+        # would refuse to start any stage: every run would fall back without
+        # ever calling an LLM, and the reviewer would gain nothing from the
+        # time held back. The reserve is never the reason a stage does not
+        # start, at any budget -- not only at the 6s of TestTimeBudget.
+        pipeline = self._pipeline(10)
+        assert pipeline._stage_allowance(REVIEW_RESERVE_SECONDS) >= MIN_STAGE_SECONDS
+
