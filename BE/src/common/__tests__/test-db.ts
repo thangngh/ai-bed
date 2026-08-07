@@ -6,6 +6,7 @@ import { Feedback } from '../../modules/feedback/entities/feedback.entity';
 import { Story } from '../../modules/story/entities/story.entity';
 import { StorySection } from '../../modules/story/entities/story-section.entity';
 import { MemoryItem } from '../../modules/memory/entities/memory-item.entity';
+import { AdminUser } from '../../modules/admin/entities/admin-user.entity';
 
 export function makeDataSource(entities: any[]): DataSource {
   return new DataSource({
@@ -17,7 +18,7 @@ export function makeDataSource(entities: any[]): DataSource {
 }
 
 export async function openTestDataSources() {
-  const core = makeDataSource([Tenant, ChildProfile, Feedback]);
+  const core = makeDataSource([Tenant, ChildProfile, Feedback, AdminUser]);
   const local = makeDataSource([Story, StorySection, MemoryItem]);
   await core.initialize();
   await local.initialize();
