@@ -15,11 +15,15 @@ const MIN_PASSWORD_LENGTH = 12;
 
 function readUsername(argv: string[]): string {
   const index = argv.indexOf('--username');
-  const value = index >= 0 ? argv[index + 1] : undefined;
-  if (!value || value.startsWith('--')) {
+  const raw = index >= 0 ? argv[index + 1] : undefined;
+  if (!raw || raw.startsWith('--')) {
     throw new Error('Usage: npm run admin:create -- --username <name>   (password from $ADMIN_PASSWORD)');
   }
-  return value.trim();
+  const value = raw.trim();
+  if (!value) {
+    throw new Error('Usage: npm run admin:create -- --username <name>   (password from $ADMIN_PASSWORD)');
+  }
+  return value;
 }
 
 function readPassword(): string {
