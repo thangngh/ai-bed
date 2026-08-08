@@ -3162,7 +3162,7 @@ createRoot(document.getElementById('root')!).render(
             </Suspense>
           }
         />
-        <Route path="*" element={<App />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,
