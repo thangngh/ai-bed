@@ -34,10 +34,10 @@ export class ListFeedbackDto {
   has_note?: number;
 
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from phải có định dạng YYYY-MM-DD' })
   from?: string;
 
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to phải có định dạng YYYY-MM-DD' })
   to?: string;
 }
