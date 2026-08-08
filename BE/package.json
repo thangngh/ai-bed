@@ -9,7 +9,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "admin:create": "ts-node -P tsconfig.json scripts/create-admin.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
