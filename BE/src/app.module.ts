@@ -14,6 +14,9 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
 import { MemoryModule } from './modules/memory/memory.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { EngineGatewayModule } from './modules/engine-gateway/engine-gateway.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { AdminUser } from './modules/admin/entities/admin-user.entity';
+import adminConfig from './modules/admin/admin.config';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middleware';
 import { HealthController } from './common/health.controller';
@@ -29,7 +32,7 @@ import rateLimitConfig from './config/rate-limit.config';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-      load: [appConfig, memoryConfig, rateLimitConfig],
+      load: [appConfig, memoryConfig, rateLimitConfig, adminConfig],
     }),
     TenantModule,
     ChildModule,
@@ -38,12 +41,13 @@ import rateLimitConfig from './config/rate-limit.config';
     MemoryModule,
     AnalyticsModule,
     EngineGatewayModule,
+    AdminModule,
     TypeOrmModule.forRootAsync({
       name: 'core',
       useFactory: (config: ConfigService) => ({
         type: 'sqlite',
         database: config.get('CORE_DB_PATH', 'data/core.db'),
-        entities: [Tenant, ChildProfile, Feedback],
+        entities: [Tenant, ChildProfile, Feedback, AdminUser],
         synchronize: config.get('NODE_ENV') === 'development',
       }),
       inject: [ConfigService],
@@ -65,7 +69,9 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(TenantMiddleware, RateLimiterMiddleware)
-      .exclude('health')
+      // /admin has no tenant. Without this the middleware would create one
+      // anonymous tenant row per admin request.
+      .exclude('health', 'admin/(.*)')
       .forRoutes('*');
   }
 }
