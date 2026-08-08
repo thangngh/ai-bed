@@ -21,7 +21,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe('adminClient', () => {
   beforeEach(() => { localStorage.clear(); });
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => { vi.unstubAllGlobals(); });
 
   it('never bootstraps a tenant', async () => {
     localStorage.setItem(ADMIN_TOKEN_KEY, liveToken());
