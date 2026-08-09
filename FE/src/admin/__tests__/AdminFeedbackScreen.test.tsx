@@ -117,6 +117,15 @@ describe('AdminFeedbackScreen', () => {
     });
   });
 
+  it('sends has_note=0 so the empty-note filter is exactly the set the BE defines', async () => {
+    const spy = vi.spyOn(client, 'fetchAdminFeedbacks').mockResolvedValue(page([], 0));
+    renderScreen('/admin/feedback?has_note=0');
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const params = spy.mock.calls[0][0];
+    expect(params.get('has_note')).toBe('0');
+  });
+
   it('omits empty filters from the request entirely', async () => {
     const spy = vi.spyOn(client, 'fetchAdminFeedbacks').mockResolvedValue(page([], 0));
     renderScreen();

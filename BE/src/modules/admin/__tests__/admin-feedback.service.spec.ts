@@ -67,6 +67,17 @@ describe('AdminFeedbackService.list', () => {
     expect(f5.child_name).toBeNull();
   });
 
+  it('degrades a dangling childId to null child_name without failing', async () => {
+    // f5 has no childId at all. Here a feedback points at a child that existed
+    // when the feedback was written but whose profile has since been deleted.
+    await core.getRepository(ChildProfile).delete({ childId: 'c1' });
+    const page = await service.list({});
+    const f1 = page.items.find((i) => i.feedback_id === 'f1')!;
+    expect(f1.child_name).toBeNull();
+    // The rest of the row still resolves normally.
+    expect(f1.story_title).toBe('Chú thỏ ngủ quên');
+  });
+
   it('filters by exact rating', async () => {
     const page = await service.list({ rating: 5 });
     expect(page.total).toBe(2);

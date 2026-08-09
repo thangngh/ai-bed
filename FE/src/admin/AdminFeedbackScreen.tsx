@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import FeedbackFilters, { EMPTY_FILTERS } from './FeedbackFilters';
+import FeedbackFilters from './FeedbackFilters';
 import FeedbackTable from './FeedbackTable';
 import { fetchAdminFeedbacks } from './adminClient';
 import { clearToken } from './adminSession';

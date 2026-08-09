@@ -109,7 +109,7 @@ export class AdminFeedbackService {
   }
 
   private async lookupStoryTitles(rows: Feedback[]): Promise<Map<string, string>> {
-    const ids = [...new Set(rows.map((r) => r.storyId).filter(Boolean))];
+    const ids = [...new Set(rows.map((r) => r.storyId).filter((id): id is string => !!id))];
     if (ids.length === 0) return new Map();
     try {
       const stories = await this.local.getRepository(Story).find({
@@ -117,7 +117,7 @@ export class AdminFeedbackService {
         select: ['storyId', 'title'],
       });
       return new Map(stories.map((s) => [s.storyId, s.title]));
-    } catch (err) {
+    } catch {
       // The feedback itself lives in core.db. A broken local.db costs titles,
       // not the whole page.
       this.logger.warn(

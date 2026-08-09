@@ -87,7 +87,7 @@ describe('AppModule middleware configuration', () => {
 
     const exclude = calls.find((c) => c.method === 'exclude');
     expect(exclude).toBeDefined();
-    // The real app.module.ts line, not the harness copy above.
+    // Regressing this line lets the tenant middleware mint a tenant for every admin request.
     expect(exclude!.args).toContain('admin/(.*)');
     expect(exclude!.args).toContain('health');
   });
