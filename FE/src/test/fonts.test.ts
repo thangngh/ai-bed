@@ -99,6 +99,64 @@ describe('index.css font wiring', () => {
     // request fails outright; losing them silently would also be a regression.
     expect(stack.length, 'expected fallback families to remain after "Be Vietnam Pro"').toBeGreaterThan(1);
   });
+
+  it('routes font-serif at Be Vietnam Pro too', () => {
+    // StoryViewScreen renders the story body with `font-serif`. Left at the
+    // Tailwind default that resolves to the system serif (Times New Roman on
+    // Windows), which is neither the licensed face nor a good renderer of
+    // stacked Vietnamese diacritics -- and no error would be raised anywhere.
+    const declaration = css().match(/@theme\s*\{[^}]*--font-serif:\s*([^;]+);/s);
+    expect(declaration, '--font-serif declaration not found inside an @theme block').not.toBeNull();
+
+    const stack = declaration![1].split(',').map((entry) => entry.trim());
+    expect(stack[0]).toBe('"Be Vietnam Pro"');
+    expect(stack.length, 'expected fallback families to remain after "Be Vietnam Pro"').toBeGreaterThan(1);
+  });
+});
+
+describe('Vietnamese diacritic clipping', () => {
+  const css = () => readFileSync(join(process.cwd(), 'src', 'index.css'), 'utf8');
+
+  // Vietnamese stacks a tone mark above an already-diacriticked vowel (ế, ộ,
+  // ữ, uppercase Ệ). Those glyphs exceed the Latin ascender, overflow a
+  // Latin-tuned line box, and get shaved off wherever an ancestor clips --
+  // `overflow-hidden` on the hero, `line-clamp-*` on the story cards. Nothing
+  // in the toolchain flags it; it only shows up as text that is hard to read.
+  //
+  // 1.3 is the floor because Be Vietnam Pro's ascent+descent content area is
+  // roughly 1.32em, so anything below that clips before leading even helps.
+  const FLOOR = 1.3;
+
+  const readRatio = (source: string, name: string) => {
+    const match = source.match(new RegExp(`${name}:\\s*([\\d.]+)\\s*;`));
+    expect(match, `${name} is not declared in index.css`).not.toBeNull();
+    return Number.parseFloat(match![1]);
+  };
+
+  it('keeps every text size above the clipping floor', () => {
+    const source = css();
+    for (const size of ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl']) {
+      const name = `--text-${size}--line-height`;
+      expect(
+        readRatio(source, name),
+        `${name} is tight enough to clip Vietnamese tone marks`,
+      ).toBeGreaterThanOrEqual(FLOOR);
+    }
+  });
+
+  it('keeps the tight leading-* utilities above the floor', () => {
+    // These override the per-size defaults above, so a heading that opts into
+    // leading-tight would otherwise walk straight back into the clipping.
+    const source = css();
+    for (const name of ['--leading-none', '--leading-tight', '--leading-snug']) {
+      expect(
+        readRatio(source, name),
+        `${name} is tight enough to clip Vietnamese tone marks`,
+      ).toBeGreaterThanOrEqual(1.1);
+    }
+    expect(readRatio(source, '--leading-tight')).toBeGreaterThanOrEqual(FLOOR);
+    expect(readRatio(source, '--leading-snug')).toBeGreaterThanOrEqual(FLOOR);
+  });
 });
 
 describe('font delivery', () => {

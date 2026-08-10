@@ -56,4 +56,41 @@
    request fails outright; every entry handles Vietnamese acceptably. */
 @theme {
   --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+
+  /* --font-serif is aliased to the same stack on purpose. The story body uses
+     `font-serif`, and the system serif it would otherwise resolve to (Times New
+     Roman on Windows) draws Vietnamese stacked diacritics badly -- and is not
+     the face this app licensed and preloads. Aliasing keeps the existing
+     `font-serif` markup working while routing it to Be Vietnam Pro. */
+  --font-serif: "Be Vietnam Pro", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+
+  /* Vietnamese line-height floors.
+     ------------------------------
+     Vietnamese stacks a tone mark on top of a vowel that may already carry a
+     diacritic (ế, ộ, ữ, and uppercase Ẳ / Ệ worst of all). Those glyphs rise
+     well above the Latin ascender, so they overflow a line box sized for
+     Latin-only text. The overflow is invisible until an ancestor clips it --
+     `overflow-hidden` on the hero card, `line-clamp-*` on the story cards --
+     and then the tone marks are shaved off and the word gets hard to read.
+
+     Tailwind's stock per-size line-heights are Latin-tuned and get tighter as
+     the size grows (text-4xl is 1.1, text-5xl is 1.0), which is exactly
+     backwards for Vietnamese headings. These values raise every size to a
+     ratio that fits the tallest stacked mark instead. */
+  --text-xs--line-height: 1.5;
+  --text-sm--line-height: 1.55;
+  --text-base--line-height: 1.6;
+  --text-lg--line-height: 1.6;
+  --text-xl--line-height: 1.55;
+  --text-2xl--line-height: 1.45;
+  --text-3xl--line-height: 1.4;
+  --text-4xl--line-height: 1.35;
+  --text-5xl--line-height: 1.3;
+
+  /* Explicit `leading-*` utilities override the per-size defaults above, so
+     the tight end of the scale needs the same floor or it reintroduces the
+     clipping on the very headings that opt into it. */
+  --leading-none: 1.15;
+  --leading-tight: 1.35;
+  --leading-snug: 1.45;
 }
