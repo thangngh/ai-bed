@@ -79,6 +79,47 @@ Ba cổng 9router vẫn cần publish vì `scripts/bootstrap-9router.mjs` chạy
 
 Engine vẫn **không có rate limit riêng** (LLM10). Điều đó chấp nhận được vì cổng 8000 đã đóng và có `ENGINE_API_KEY`, nhưng cần ghi nhận là một giả định kiến trúc, không phải một biện pháp.
 
+### 0.5 Kiểm chứng trên stack Docker thật (2026-08-10)
+
+`docker compose up -d`, cả 3 service healthy, rồi bắn request thật qua cổng 80:
+
+| # | Kiểm tra | Kết quả |
+|---|---|---|
+| 1 | Cổng publish ra host | chỉ `0.0.0.0:80->8080` (frontend); backend/engine chỉ `expose` |
+| 2 | Gọi thẳng `localhost:8000` / `localhost:3001` | **connection refused** cả hai |
+| 3 | UID trong container | engine `10001`, backend `1000`, frontend `101` — không container nào chạy root |
+| 4 | Security headers | CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy đủ; `Server: nginx` không lộ version; HSTS vắng (đúng, xem ghi chú trong nginx.conf) |
+| 5 | `X-Engine-Key` | gọi `engine:8000/generate` **từ trong compose network** mà không có key → **401** |
+| 6 | `/docs`, `/redoc`, `/openapi.json` | **404** cả ba |
+| 7 | Rate limit per-IP | 26 request → 21×200, 5×429, `Retry-After: 60` trên 429 và vắng trên 200 |
+| 8 | Header trên response lỗi | `nosniff` có mặt trên 429 → cờ `always` hoạt động |
+
+Khoá đầu vào, bắn qua `POST /api/story/create` (**9/9 chặn đúng**):
+
+| Payload | Kết quả |
+|---|---|
+| `theme` fullwidth (`ｋｉｌｌ`) | 422 |
+| `child_name` chứa fence fullwidth (`＜＜＜An`) | 422 |
+| `theme` tiếng Trung | 422 |
+| `child_name` Cyrillic | 422 |
+| `child_name` có emoji | 422 |
+| `theme = "bạo lực"` | 422 |
+| `goal = "ignore all previous instructions"` | 422 |
+| `age = 9` / `age = 2` | 422 |
+| `language = "en"` | 422 |
+| `child_name = "Dao"` (hợp lệ) | **201** — không bị blocklist chặn nhầm |
+
+Sinh truyện end-to-end: pipeline tới được OpenRouter, planner trả về sau 26.4s. Free tier hiện đã hết quota (`All OpenRouter keys exhausted`) nên hệ thống degrade thành truyện fallback + HTTP 201, không phải 502 — đúng thiết kế. Chain trong compose base thực tế chỉ còn OpenRouter: DeepSeek không có key và `CUSTOM_LLM_URL` bị đặt rỗng (9router chỉ có ở HA overlay).
+
+**Ba việc phát sinh khi chạy thật:**
+
+1. **`PIPELINE_BUDGET_SECONDS=45` quá ngắn cho free tier.** Đo được: planner mất 26.4s, writer chưa xong thì hết budget → fallback dù provider vẫn hoạt động. `.env.example` đã ghi HA overlay nên dùng 90; compose base vẫn để 45. Cần nâng, hoặc chấp nhận fallback thường xuyên trên free tier.
+2. **Volume `be-data` cũ thuộc root.** Đổi Dockerfile sang `USER node` làm BE crash `SQLITE_READONLY` trên deployment đã có sẵn volume — Docker chỉ áp ownership của image cho volume **mới tạo**. Sửa một lần, không mất dữ liệu:
+   `docker run --rm -v <project>_be-data:/data alpine chown -R 1000:1000 /data`
+3. **FE `package-lock.json` lệch với `package.json` từ `30febff`** → `npm ci` fail, tức **image FE không build được suốt 2 commit**. Đã chạy `npm install --package-lock-only`; diff chỉ nằm trong optional deps bundled của `@tailwindcss/oxide-wasm32-wasi`, không đổi version dependency trực tiếp.
+
+**Một lỗi chưa kết luận được:** vài request `/story/create` trả 500 (`error_code: UNKNOWN`, latency ~37s, tức ngay sau khi Engine trả 200) trước lần restart BE, và không tái hiện được sau đó. Không phải DB (đã kiểm: thư mục ghi được, `INSERT` với `safety_status='FALLBACK'` chạy OK, schema khớp entity). Nguyên nhân chưa xác định — nhưng `HttpExceptionFilter` trước đây **không log exception bao giờ**, nên một 500 chỉ để lại `error_code: UNKNOWN` và không có gì để lần. Đã thêm log phía server (stack không bao giờ vào response body); nếu tái diễn thì lần sau sẽ chẩn đoán được.
+
 ---
 
 ## 1. Tóm tắt điều hành (đánh giá gốc 2026-08-06)
@@ -305,6 +346,7 @@ Cột **Trạng thái** cập nhật 2026-08-10. `✅` = đã xử lý và có t
 | P2-6 | ⬜ | A02 | Mã hóa/giảm thiểu PII trẻ em trong `localStorage` | FE/src/App.tsx |
 | P2-7 | ✅ | A05 | `mem_limit`/`cpus`, `no-new-privileges`, `read_only` cho Engine | docker-compose.yml |
 | P2-8 | ⬜ | A09 | Không log `tenant_id` plaintext; thêm audit trail | BE logging.interceptor.ts |
+| P2-10 | ✅ | A09 | Log nguyên nhân của exception không phải HttpException (trước đây 500 không để lại dấu vết nào) | BE http-exception.filter.ts |
 | P2-9 | ⬜ | A06 | `npm audit`/`pip-audit` trong CI | CI config (chưa có) |
 
 ### P3 — Thấp / hardening
