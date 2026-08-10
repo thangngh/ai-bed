@@ -38,7 +38,7 @@ class RecordingRouter:
         self.responses = responses
         self.calls: list[tuple[str, str]] = []
 
-    async def complete(self, prompt: str, stage: str = ""):
+    async def complete(self, prompt: str, stage: str = "", accept=None):
         self.calls.append((stage, prompt))
         value = self.responses.get(stage, "{}")
         return value(len([s for s, _ in self.calls if s == stage])) if callable(value) else value

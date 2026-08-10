@@ -136,7 +136,23 @@ class StoryPipeline:
         tiers = (prompts.get("system", ""), prompts.get("developer", ""))
         return "\n\n".join(t for t in tiers if t.strip())
 
-    async def _call_llm(self, prompt: str, stage: str, reserve: float = 0.0) -> str:
+    @staticmethod
+    def _acceptor(validator):
+        """Turn a stage validator into the router's `accept` test.
+
+        The router cannot judge a body on its own -- only the stage knows what
+        shape it asked for -- and it must never see this raise: an exception
+        here would be counted as a transport failure and could retire the
+        provider. Anything unparseable is simply "not usable".
+        """
+        def accept(raw: str) -> bool:
+            try:
+                return bool(validator(extract_json_block(raw)).valid)
+            except Exception:
+                return False
+        return accept
+
+    async def _call_llm(self, prompt: str, stage: str, reserve: float = 0.0, accept=None) -> str:
         allowance = self._stage_allowance(reserve)
         if allowance < MIN_STAGE_SECONDS:
             raise BudgetExhausted(
@@ -147,7 +163,14 @@ class StoryPipeline:
         self._count_call()
         # Cap the call at whatever is left, so a single slow provider cannot
         # outlive the whole generation.
-        return await asyncio.wait_for(self.router.complete(prompt, stage), timeout=allowance)
+        # Only stages that can judge their own output pass a test; the call
+        # stays a plain two-argument one otherwise.
+        call = (
+            self.router.complete(prompt, stage, accept=accept)
+            if accept is not None
+            else self.router.complete(prompt, stage)
+        )
+        return await asyncio.wait_for(call, timeout=allowance)
 
     async def run(self, prompts: dict[str, str]) -> PipelineResult:
         # The orchestrator holds one pipeline for the process lifetime, so
@@ -231,7 +254,9 @@ class StoryPipeline:
                 )
                 if attempt > 0 and retry_hint:
                     combined = f"{combined}\n\n{retry_hint}"
-                raw = await self._call_llm(combined, stage, reserve=reserve)
+                raw = await self._call_llm(
+                    combined, stage, reserve=reserve, accept=self._acceptor(validator)
+                )
                 data = extract_json_block(raw)
                 result = validator(data)
                 if result.valid:
@@ -311,7 +336,17 @@ class StoryPipeline:
         for attempt in range(2):
             prompt = base if attempt == 0 else f"{base}\n\n{REVIEW_RETRY_HINT}"
             try:
-                raw = await self._call_llm(prompt, "reviewer")
+                # The reviewer is the safety gate, so it is the worst stage to
+                # strand on one provider: an unparseable review is UNREVIEWED,
+                # which blocks, which ships the fallback story. A reply that
+                # is not a JSON object is no verdict at all -- ask the next
+                # tier before spending the re-ask.
+                raw = await self._call_llm(
+                    prompt, "reviewer",
+                    accept=self._acceptor(
+                        lambda d: ValidationResult(valid=isinstance(d, dict))
+                    ),
+                )
             except (asyncio.TimeoutError, BudgetExhausted):
                 # No safety signal at all. UNREVIEWED is blocking in
                 # _gate_verdict: an unreviewed story is exactly what the

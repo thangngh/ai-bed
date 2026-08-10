@@ -29,8 +29,26 @@ class ValidationResult:
     fixed_data: dict | None = None
 
 
+def _not_an_object(stage: str, data: Any) -> ValidationResult:
+    """A parsed payload that is not a JSON object is a rejected attempt.
+
+    extract_json_block returns the first JSON block it finds, which is a list
+    whenever the model answers with a bare array or puts one ahead of the
+    object. Reaching into it with .get() raised AttributeError/ValueError out
+    of the validator, so the caller saw an internal error rather than an
+    invalid response -- and could not report which stage produced it.
+    """
+    return ValidationResult(
+        valid=False,
+        errors=[f"{stage} must return a JSON object, got {type(data).__name__}"],
+    )
+
+
 class OutputValidator:
-    def validate_planner(self, data: dict) -> ValidationResult:
+    def validate_planner(self, data: Any) -> ValidationResult:
+        if not isinstance(data, dict):
+            return _not_an_object("planner", data)
+
         errors = []
 
         if not data.get("title"):
@@ -89,7 +107,10 @@ class OutputValidator:
         }
         return fixed
 
-    def validate_writer(self, data: dict) -> ValidationResult:
+    def validate_writer(self, data: Any) -> ValidationResult:
+        if not isinstance(data, dict):
+            return _not_an_object("writer", data)
+
         errors = []
         data = self._auto_fix(data)
 

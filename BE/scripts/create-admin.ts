@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { AdminUser } from '../src/modules/admin/entities/admin-user.entity';
 import { hashPassword } from '../src/modules/admin/auth/password';
+import 'dotenv/config';
 
 const MIN_PASSWORD_LENGTH = 12;
 

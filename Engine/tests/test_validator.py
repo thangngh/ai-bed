@@ -152,3 +152,24 @@ class TestOutputValidator:
         }
         result = validator.validate_writer(data)
         assert result.valid  # purity is warning, not rejection
+
+
+class TestNonObjectPayloads:
+    """extract_json_block returns the first JSON block, which may be a list.
+
+    A model that answers with a bare array -- or with prose containing a
+    bracketed list before the object -- used to crash the validator with
+    "'list' object has no attribute 'get'". That AttributeError is not a
+    validation result: it escapes as an internal error instead of a rejected
+    attempt, so the caller cannot tell a bad payload from a broken validator.
+    """
+
+    def test_planner_rejects_a_list_payload(self):
+        result = OutputValidator().validate_planner([{"title": "Test"}])
+        assert result.valid is False
+        assert result.errors
+
+    def test_writer_rejects_a_list_payload(self):
+        result = OutputValidator().validate_writer([{"type": "opening"}])
+        assert result.valid is False
+        assert result.errors

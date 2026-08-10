@@ -257,3 +257,81 @@ class TestRotation:
         assert LLMRouter().rotate is True
         monkeypatch.setenv("LLM_ROTATE", "1")
         assert LLMRouter().rotate is True
+
+
+class UnusableClient:
+    """Answers 200-and-garbage: succeeds at the transport level, but the
+    content is not something the caller can use."""
+
+    def __init__(self, name: str, log: list, payload: str):
+        self.name = name
+        self.log = log
+        self.payload = payload
+
+    async def complete(self, prompt: str, stage: str = "") -> str:
+        self.log.append(self.name)
+        return self.payload
+
+
+class TestContentLevelFallback:
+    """A provider that answers with unusable content must not end the call.
+
+    Measured 2026-08-10: OpenRouter returned HTTP 200 with a JSON array where
+    the planner schema wanted an object. That is a router-level *success*, so
+    the chain stopped at openrouter and the configured `custom` (9router)
+    tier was never tried -- the failover existed on paper only. Whether a
+    response is usable is stage-specific, so the caller passes the test down.
+    """
+
+    @staticmethod
+    def _router(clients, log):
+        router = LLMRouter()
+        router.providers = clients
+        router.fallback_order = list(clients)
+        router._consecutive_failures = {}
+        router.rotate = False
+        router._rotation = 0
+        return router
+
+    @pytest.mark.asyncio
+    async def test_unusable_content_falls_through_to_the_next_provider(self):
+        log = []
+        router = self._router(
+            {
+                "openrouter": UnusableClient("openrouter", log, "[1, 2, 3]"),
+                "custom": UnusableClient("custom", log, '{"title": "ok"}'),
+            },
+            log,
+        )
+
+        result = await router.complete(
+            "p", "planner", accept=lambda raw: raw.lstrip().startswith("{")
+        )
+
+        assert result == '{"title": "ok"}'
+        assert log == ["openrouter", "custom"]
+
+    @pytest.mark.asyncio
+    async def test_without_an_accept_test_any_response_is_kept(self):
+        log = []
+        router = self._router(
+            {"openrouter": UnusableClient("openrouter", log, "[1, 2, 3]")}, log
+        )
+
+        assert await router.complete("p", "planner") == "[1, 2, 3]"
+        assert log == ["openrouter"]
+
+    @pytest.mark.asyncio
+    async def test_all_providers_unusable_raises_fallback_triggered(self):
+        log = []
+        router = self._router(
+            {
+                "openrouter": UnusableClient("openrouter", log, "[1]"),
+                "custom": UnusableClient("custom", log, "nonsense"),
+            },
+            log,
+        )
+
+        with pytest.raises(FallbackTriggered):
+            await router.complete("p", "planner", accept=lambda raw: False)
+        assert log == ["openrouter", "custom"]

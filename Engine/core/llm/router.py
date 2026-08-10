@@ -16,6 +16,11 @@ class FallbackTriggered(Exception):
     pass
 
 
+class UnusableResponse(Exception):
+    """A provider answered, but the caller cannot use what it said."""
+    pass
+
+
 # After this many consecutive failures a provider is dropped from the chain
 # for the life of the process. Without this, a dead provider is retried on
 # every LLM call -- and a single generation makes up to 10 of them, so a
@@ -178,7 +183,17 @@ class LLMRouter:
             f"Remaining: {' -> '.join(self.fallback_order)}"
         )
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", accept=None) -> str:
+        """Ask the chain until one provider gives an answer the caller accepts.
+
+        `accept(raw) -> bool` is optional and stage-specific: only the caller
+        knows what a planner or a writer reply has to look like. Without it,
+        the chain stops at the first provider that returns 200 -- which is how
+        an OpenRouter reply carrying a JSON array instead of the planner
+        object ended the call, leaving the configured `custom` (9router) tier
+        untried. A rejected body is a failure of that provider for this call,
+        not of the request.
+        """
         last_error = None
         # A snapshot, for two reasons: a provider may be dropped mid-loop, and
         # under rotation this call's order is not self.fallback_order.
@@ -192,6 +207,11 @@ class LLMRouter:
                 logger.info(f"LLM call: provider={provider_name} stage={stage}")
                 started = time.monotonic()
                 result = await provider.complete(prompt, stage)
+                if accept is not None and not accept(result):
+                    raise UnusableResponse(
+                        f"{provider_name} returned a response {stage or 'the caller'} "
+                        f"cannot use ({len(result)} chars)"
+                    )
                 # The elapsed time is the whole point of the budget work in
                 # docs/09; without it a fallback tells you nothing about which
                 # stage spent the time.
@@ -201,6 +221,15 @@ class LLMRouter:
                 )
                 self._consecutive_failures[provider_name] = 0
                 return result
+            except UnusableResponse as e:
+                # Deliberately not counted towards MAX_CONSECUTIVE_FAILURES.
+                # Model output is stochastic, so three unusable replies say
+                # much less about a provider than three transport failures do,
+                # and retiring it for the life of the process on that evidence
+                # would shrink the chain for a bad afternoon of sampling.
+                last_error = str(e)
+                logger.warning(f"{e}, trying fallback")
+                continue
             except AllKeysExhausted as e:
                 last_error = str(e)
                 # Definitive: no key will start working on its own.

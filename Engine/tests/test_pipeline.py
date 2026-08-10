@@ -12,7 +12,7 @@ class MockRouter:
         self.call_count = 0
         self.prompts = []
 
-    async def complete(self, prompt: str, stage: str = ""):
+    async def complete(self, prompt: str, stage: str = "", accept=None):
         self.call_count += 1
         self.prompts.append(stage)
         return self.responses.get(stage, "{}")
@@ -36,7 +36,7 @@ class TestStoryPipeline:
     @pytest.mark.asyncio
     async def test_fallback_on_all_failures(self):
         class FailingRouter:
-            async def complete(self, prompt, stage=""):
+            async def complete(self, prompt, stage="", accept=None):
                 raise Exception("LLM down")
 
         pipeline = StoryPipeline(FailingRouter())
@@ -85,7 +85,7 @@ class TestStoryPipeline:
                 self.prompts = []
                 self.writer_calls = 0
 
-            async def complete(self, prompt, stage=""):
+            async def complete(self, prompt, stage="", accept=None):
                 self.prompts.append((stage, prompt))
                 if stage == "planner":
                     return '{"title": "Test", "story_structure": {"sections": [{"order": 0, "type": "opening", "description": "..."}, {"order": 1, "type": "context", "description": "..."}], "moral": "good"}}'
@@ -150,7 +150,7 @@ class SlowRouter:
         self.delay = delay
         self.call_count = 0
 
-    async def complete(self, prompt: str, stage: str = ""):
+    async def complete(self, prompt: str, stage: str = "", accept=None):
         self.call_count += 1
         await asyncio.sleep(self.delay)
         return "{}"
@@ -255,3 +255,76 @@ class TestReviewerReserve:
         pipeline = self._pipeline(10)
         assert pipeline._stage_allowance(REVIEW_RESERVE_SECONDS) >= MIN_STAGE_SECONDS
 
+
+
+class TierRouter:
+    """Stand-in for the real chain: openrouter first, custom (9router) behind it.
+
+    Each stage lists what each tier answers, in chain order. A tier whose
+    answer the pipeline rejects must be skipped in favour of the next one --
+    inside the same call, without spending a retry.
+    """
+
+    def __init__(self, tiers: dict[str, list[str]]):
+        self.tiers = tiers
+        self.tried: list[tuple[str, int]] = []
+        self.call_count = 0
+
+    async def complete(self, prompt: str, stage: str = "", accept=None):
+        self.call_count += 1
+        answers = self.tiers.get(stage, ['{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}'])
+        for tier, raw in enumerate(answers):
+            self.tried.append((stage, tier))
+            if accept is None or accept(raw):
+                return raw
+        raise Exception(f"every tier gave {stage} an unusable answer")
+
+
+VALID_PLANNER = ('{"title": "Test", "story_structure": {"sections": ['
+                 '{"order": 0, "type": "opening", "description": "..."}, '
+                 '{"order": 1, "type": "context", "description": "..."}], "moral": "good"}}')
+
+VALID_WRITER = ('{"title": "Test", "content": ['
+                '{"type": "opening", "text": "A\\n\\nB", "order": 0}, '
+                '{"type": "context", "text": "C\\n\\nD", "order": 1}, '
+                '{"type": "conflict", "text": "E\\n\\nF", "order": 2}, '
+                '{"type": "resolution", "text": "G\\n\\nH", "order": 3}, '
+                '{"type": "interaction", "text": "Con nghĩ sao?", "prompt": "?", "order": 4}], '
+                '"word_count": 150}')
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_planner_answer_is_served_by_the_next_tier():
+    # Measured 2026-08-10: OpenRouter answered the planner with a JSON array.
+    # HTTP 200, so the chain stopped there and 9router never saw the request.
+    router = TierRouter({"planner": ["[1, 2, 3]", VALID_PLANNER], "writer": [VALID_WRITER]})
+    pipeline = StoryPipeline(router)
+
+    result = await pipeline.run({})
+
+    assert result.is_fallback is False
+    assert result.title == "Test"
+    assert ("planner", 1) in router.tried, "the second tier was never tried"
+    # planner + writer + reviewer. A retry would mean the fallback happened a
+    # whole LLM call late -- which is what the 45s budget cannot afford.
+    assert pipeline.llm_calls == 3
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_review_is_served_by_the_next_tier():
+    """The reviewer is the safety gate, so it is the worst stage to strand on
+    tier one: an unparseable review is UNREVIEWED, which blocks, which ships
+    the fallback story. Ask the next provider before giving up on the run."""
+    router = TierRouter({
+        "planner": [VALID_PLANNER],
+        "writer": [VALID_WRITER],
+        "reviewer": ["I think it is fine!",
+                     '{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}'],
+    })
+    pipeline = StoryPipeline(router)
+
+    result = await pipeline.run({})
+
+    assert result.safety_verdict == "APPROVED"
+    assert result.is_fallback is False
+    assert ("reviewer", 1) in router.tried, "the second tier was never asked to review"
