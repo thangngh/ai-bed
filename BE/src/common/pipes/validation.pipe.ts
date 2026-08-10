@@ -20,7 +20,10 @@ export class ValidationPipe implements PipeTransform<any> {
     if (!metatype || !this.toValidate(metatype)) return value;
 
     const object = plainToInstance(metatype, value);
-    const errors = await validate(object);
+    // Strip properties no DTO declares. Every controller takes a real DTO
+    // class, so an undeclared field is by definition something no handler
+    // asked for -- and the memory endpoints persist what they are given.
+    const errors = await validate(object, { whitelist: true });
     if (errors.length > 0) {
       const firstError = errors[0];
       const constraints = firstError.constraints || {};

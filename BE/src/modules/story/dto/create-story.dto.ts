@@ -1,5 +1,17 @@
-import { IsString, IsNotEmpty, IsInt, Min, Max, IsOptional, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsInt, Min, Max, IsOptional, IsIn, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
+
+/**
+ * Every field below is interpolated into the Engine's prompt, so an unbounded
+ * one is both a cost lever (the whole body is billed as input tokens) and the
+ * room a prompt-injection payload needs. The Engine re-applies the same caps in
+ * `core/prompts/sanitize.py` -- these are the cheap rejection, not the defence.
+ */
+const NAME_MAX = 40;
+const THEME_MAX = 60;
+const GOAL_MAX = 200;
+const GENDER_MAX = 20;
+const CHARACTER_MAX = 60;
 
 /**
  * Moods the SPA's form offers (`MOOD_SUGGESTIONS`), plus the ones the server
@@ -25,6 +37,7 @@ export const ALLOWED_MOODS = [
 export class CreateStoryDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(NAME_MAX)
   child_name!: string;
 
   @IsInt()
@@ -34,10 +47,12 @@ export class CreateStoryDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(THEME_MAX)
   theme!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(GOAL_MAX)
   goal?: string;
 
   @IsOptional()
@@ -45,15 +60,20 @@ export class CreateStoryDto {
   @IsIn(ALLOWED_MOODS)
   mood?: string;
 
+  // Vietnamese is the only language the prompts, the blocklist and the
+  // Vietnamese-purity check are written for, so anything else is not a
+  // language choice, it is unreviewed output.
   @IsOptional()
-  @IsString()
+  @IsIn(['vi'])
   language?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(GENDER_MAX)
   gender?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(CHARACTER_MAX)
   favorite_character?: string;
 }

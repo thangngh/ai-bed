@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import httpx
-from .client import BaseLLMClient, EmptyCompletionError
+from .client import BaseLLMClient, EmptyCompletionError, build_messages
 from .openai_client import AllKeysExhausted
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class OpenRouterClient(BaseLLMClient):
                 return key
         raise AllKeysExhausted("All OpenRouter keys exhausted")
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         key = self._get_next_key()
         headers = {
             "Content-Type": "application/json",
@@ -50,7 +50,7 @@ class OpenRouterClient(BaseLLMClient):
         }
         payload = {
             "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": build_messages(prompt, system),
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
         }
@@ -91,5 +91,5 @@ class OpenRouterClient(BaseLLMClient):
                     f"OpenRouter key ...{key[-4:]} failed with {e.response.status_code}; "
                     f"trying next key"
                 )
-                return await self.complete(prompt, stage)
+                return await self.complete(prompt, stage, system)
             raise

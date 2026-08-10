@@ -1,7 +1,7 @@
 ﻿import os
 import logging
 from openai import AsyncOpenAI
-from .client import BaseLLMClient, EmptyCompletionError
+from .client import BaseLLMClient, EmptyCompletionError, build_messages
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +36,11 @@ class DeepSeekClient(BaseLLMClient):
             self._client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._client
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         try:
             response = await self._get_client().chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=build_messages(prompt, system),
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
             )

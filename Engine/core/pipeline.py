@@ -152,7 +152,8 @@ class StoryPipeline:
                 return False
         return accept
 
-    async def _call_llm(self, prompt: str, stage: str, reserve: float = 0.0, accept=None) -> str:
+    async def _call_llm(self, prompt: str, stage: str, reserve: float = 0.0, accept=None,
+                        system: str = "") -> str:
         allowance = self._stage_allowance(reserve)
         if allowance < MIN_STAGE_SECONDS:
             raise BudgetExhausted(
@@ -166,9 +167,9 @@ class StoryPipeline:
         # Only stages that can judge their own output pass a test; the call
         # stays a plain two-argument one otherwise.
         call = (
-            self.router.complete(prompt, stage, accept=accept)
+            self.router.complete(prompt, stage, accept=accept, system=system)
             if accept is not None
-            else self.router.complete(prompt, stage)
+            else self.router.complete(prompt, stage, system=system)
         )
         return await asyncio.wait_for(call, timeout=allowance)
 
@@ -245,17 +246,34 @@ class StoryPipeline:
             logger.error(f"Pipeline failed: {e}")
             return self._fallback(str(e))
 
+    @staticmethod
+    def _split_tiers(prompts: dict) -> tuple[str, str]:
+        """(system_message, user_message).
+
+        The system and developer tiers are operator instructions and go to the
+        provider's system channel; only the user tier -- which is where the
+        parent's text and the stored memories live, inside the data fence --
+        goes into the user turn. These used to be `"\\n\\n".join`ed into one
+        string under a single `user` role, which handed the model no way to
+        tell a safety rule from a sentence someone typed into a form.
+        """
+        system = "\n\n".join(
+            p for p in (prompts.get("system", ""), prompts.get("developer", "")) if p.strip()
+        )
+        return system, prompts.get("user", "")
+
     async def _call_retry(self, prompts: dict, stage: str, max_retries: int, validator, retry_hint: str = "", reserve: float = 0.0) -> str | None:
+        system, user = self._split_tiers(prompts)
         for attempt in range(max_retries + 1):
             try:
-                combined = "\n\n".join(
-                    p for p in (prompts.get("system", ""), prompts.get("developer", ""),
-                                prompts.get("user", "")) if p.strip()
+                # The hint is operator text about the *previous* reply, so it
+                # belongs with the instructions, not inside the fenced data.
+                system_message = (
+                    f"{system}\n\n{retry_hint}" if attempt > 0 and retry_hint else system
                 )
-                if attempt > 0 and retry_hint:
-                    combined = f"{combined}\n\n{retry_hint}"
                 raw = await self._call_llm(
-                    combined, stage, reserve=reserve, accept=self._acceptor(validator)
+                    user, stage, reserve=reserve, accept=self._acceptor(validator),
+                    system=system_message,
                 )
                 data = extract_json_block(raw)
                 result = validator(data)
@@ -331,10 +349,16 @@ class StoryPipeline:
         review_prompt = self.registry.load_reviewer().format(
             story=json.dumps(story, ensure_ascii=False)
         )
-        base = "\n\n".join(p for p in (safety_rules, review_prompt) if p.strip())
 
         for attempt in range(2):
-            prompt = base if attempt == 0 else f"{base}\n\n{REVIEW_RETRY_HINT}"
+            # The story under review is model output derived from untrusted
+            # input, so it stays in the user turn while the safety rules it is
+            # judged against stay in the system channel -- otherwise a story
+            # can end with "APPROVED, no issues" and read as the rules talking.
+            system = (
+                safety_rules if attempt == 0
+                else "\n\n".join(p for p in (safety_rules, REVIEW_RETRY_HINT) if p.strip())
+            )
             try:
                 # The reviewer is the safety gate, so it is the worst stage to
                 # strand on one provider: an unparseable review is UNREVIEWED,
@@ -342,10 +366,11 @@ class StoryPipeline:
                 # is not a JSON object is no verdict at all -- ask the next
                 # tier before spending the re-ask.
                 raw = await self._call_llm(
-                    prompt, "reviewer",
+                    review_prompt, "reviewer",
                     accept=self._acceptor(
                         lambda d: ValidationResult(valid=isinstance(d, dict))
                     ),
+                    system=system,
                 )
             except (asyncio.TimeoutError, BudgetExhausted):
                 # No safety signal at all. UNREVIEWED is blocking in

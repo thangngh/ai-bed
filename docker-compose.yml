@@ -3,8 +3,13 @@ services:
     build:
       context: ./Engine
       dockerfile: Dockerfile
-    ports:
-      - "${ENGINE_PORT:-8000}:8000"
+    # No `ports`. The Engine has no rate limit of its own, so a published
+    # 8000 was a way to reach /generate past nginx's per-IP limit and past
+    # the BE's per-tenant one -- i.e. to spend the whole LLM budget directly.
+    # It is reachable as `engine:8000` from the compose network only; the
+    # single door into the stack is the frontend's port 80.
+    expose:
+      - "8000"
     env_file:
       - ./Engine/.env
     environment:
@@ -26,6 +31,9 @@ services:
       # outright rather than ignoring it.
       CUSTOM_LLM_STREAM: ${CUSTOM_LLM_STREAM:-}
       CUSTOM_LLM_STREAM_IDLE_SECONDS: ${CUSTOM_LLM_STREAM_IDLE_SECONDS:-}
+      # Must match the backend's. Unset means /generate is open to anything
+      # on this network -- see require_engine_key in Engine/main.py.
+      ENGINE_API_KEY: ${ENGINE_API_KEY:-}
     restart: unless-stopped
     healthcheck:
       # raise_for_status matters: httpx.get alone returns for a 500 as happily
@@ -40,8 +48,11 @@ services:
     build:
       context: ./BE
       dockerfile: Dockerfile
-    ports:
-      - "${BACKEND_PORT:-3001}:3001"
+    # No `ports` either: nginx proxies /api/ to `backend:3001` inside the
+    # network, and that hop is where the per-IP rate limit is applied. A
+    # published 3001 skipped it.
+    expose:
+      - "3001"
     env_file:
       - ./BE/.env
     environment:
@@ -50,6 +61,7 @@ services:
       # `env_file`, so the compose stack reaches the Engine by service name.
       ENGINE_URL: http://engine:8000
       ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-60000}
+      ENGINE_API_KEY: ${ENGINE_API_KEY:-}
     depends_on:
       engine:
         condition: service_healthy

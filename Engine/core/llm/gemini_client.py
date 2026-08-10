@@ -15,19 +15,24 @@ class GeminiClient(BaseLLMClient):
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY not configured")
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         try:
             from google import genai
             from google.genai import types as genai_types
 
             client = genai.Client(api_key=self.api_key)
+            # Gemini has no `system` message role; `system_instruction` is the
+            # equivalent channel, and it is what keeps the operator rules out
+            # of `contents` alongside the parent's text.
+            config = genai_types.GenerateContentConfig(
+                max_output_tokens=self.max_tokens,
+                temperature=self.temperature,
+                system_instruction=system if system and system.strip() else None,
+            )
             response = client.models.generate_content(
                 model=self.model,
                 contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    max_output_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                ),
+                config=config,
             )
             content = response.text or ""
             if not content.strip():

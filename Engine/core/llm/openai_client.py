@@ -2,7 +2,7 @@ import os
 import logging
 from typing import Optional
 from openai import AsyncOpenAI, RateLimitError, AuthenticationError
-from .client import BaseLLMClient, EmptyCompletionError
+from .client import BaseLLMClient, EmptyCompletionError, build_messages
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class OpenAIClient(BaseLLMClient):
 
         raise AllKeysExhausted("All OpenAI keys exhausted")
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         key = None
         try:
             key, client = self._get_next_key()
@@ -54,7 +54,7 @@ class OpenAIClient(BaseLLMClient):
 
             response = await client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=build_messages(prompt, system),
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
             )
@@ -71,7 +71,7 @@ class OpenAIClient(BaseLLMClient):
             if key:
                 self._record_failure(key)
                 logger.warning(f"OpenAI key ...{key[-4:]} failed: {e}. Trying next key...")
-            return await self.complete(prompt, stage)
+            return await self.complete(prompt, stage, system)
         except Exception as e:
             logger.error(f"OpenAI unexpected error: {e}")
             raise

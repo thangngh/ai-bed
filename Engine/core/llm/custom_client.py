@@ -3,7 +3,7 @@ import json
 import logging
 import time
 import httpx
-from .client import BaseLLMClient, EmptyCompletionError
+from .client import BaseLLMClient, EmptyCompletionError, build_messages
 
 logger = logging.getLogger(__name__)
 
@@ -268,10 +268,10 @@ class CustomClient(BaseLLMClient):
         if not self.api_url:
             raise ValueError("CUSTOM_LLM_URL not configured")
 
-    def _payload(self, prompt: str) -> dict:
+    def _payload(self, prompt: str, system: str = "") -> dict:
         payload = {
             "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": build_messages(prompt, system),
             "max_tokens": _int_env("CUSTOM_LLM_MAX_TOKENS", "OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS),
             "temperature": _float_env("CUSTOM_LLM_TEMPERATURE", "OPENAI_TEMPERATURE", 0.7),
         }
@@ -291,11 +291,11 @@ class CustomClient(BaseLLMClient):
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         if self.stream:
-            content, detail = await self._complete_streaming(prompt, stage)
+            content, detail = await self._complete_streaming(prompt, stage, system)
         else:
-            content, detail = await self._complete_buffered(prompt)
+            content, detail = await self._complete_buffered(prompt, system)
 
         if not content.strip():
             raise EmptyCompletionError(
@@ -303,8 +303,8 @@ class CustomClient(BaseLLMClient):
             )
         return content
 
-    async def _complete_streaming(self, prompt: str, stage: str) -> tuple[str, str]:
-        payload = dict(self._payload(prompt), stream=True)
+    async def _complete_streaming(self, prompt: str, stage: str, system: str = "") -> tuple[str, str]:
+        payload = dict(self._payload(prompt, system), stream=True)
         # `read` is per-chunk in streaming mode, so it is an inactivity timeout
         # rather than a deadline for the whole generation -- which is exactly
         # the distinction a buffered request cannot make.
@@ -386,10 +386,10 @@ class CustomClient(BaseLLMClient):
             detail += f", usage={usage}"
         return content, detail
 
-    async def _complete_buffered(self, prompt: str) -> tuple[str, str]:
+    async def _complete_buffered(self, prompt: str, system: str = "") -> tuple[str, str]:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.post(
-                self.api_url, json=self._payload(prompt), headers=self._headers()
+                self.api_url, json=self._payload(prompt, system), headers=self._headers()
             )
             response.raise_for_status()
 

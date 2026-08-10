@@ -25,6 +25,7 @@ interface EnginePayload {
 export class EngineGatewayService {
   private baseUrl: string;
   private timeoutMs: number;
+  private apiKey: string;
   /**
    * Node's `fetch` applies undici's own 300s `headersTimeout` on top of our
    * AbortController, and it surfaces as a plain `TypeError`, not an
@@ -38,6 +39,7 @@ export class EngineGatewayService {
   constructor(private config: ConfigService) {
     this.baseUrl = this.config.get('engine.baseUrl', 'http://localhost:8000');
     this.timeoutMs = this.config.get('engine.timeoutMs', 25000);
+    this.apiKey = this.config.get('engine.apiKey', '');
   }
 
   async generate(dto: GenerateDto): Promise<EngineResponse> {
@@ -47,7 +49,11 @@ export class EngineGatewayService {
     try {
       const response = await undiciFetch(`${this.baseUrl}/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': dto.tenantId },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tenant-Id': dto.tenantId,
+          ...(this.apiKey ? { 'X-Engine-Key': this.apiKey } : {}),
+        },
         body: JSON.stringify(this.toEnginePayload(dto)),
         signal: controller.signal,
         dispatcher: this.dispatcher,

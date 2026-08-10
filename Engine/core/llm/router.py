@@ -183,7 +183,7 @@ class LLMRouter:
             f"Remaining: {' -> '.join(self.fallback_order)}"
         )
 
-    async def complete(self, prompt: str, stage: str = "", accept=None) -> str:
+    async def complete(self, prompt: str, stage: str = "", accept=None, system: str = "") -> str:
         """Ask the chain until one provider gives an answer the caller accepts.
 
         `accept(raw) -> bool` is optional and stage-specific: only the caller
@@ -193,6 +193,10 @@ class LLMRouter:
         object ended the call, leaving the configured `custom` (9router) tier
         untried. A rejected body is a failure of that provider for this call,
         not of the request.
+
+        `system` is passed through untouched: the router must never merge it
+        into `prompt`, because the separation between operator rules and
+        untrusted data is exactly what the provider's system channel encodes.
         """
         last_error = None
         # A snapshot, for two reasons: a provider may be dropped mid-loop, and
@@ -206,7 +210,7 @@ class LLMRouter:
                 provider = self.providers[provider_name]
                 logger.info(f"LLM call: provider={provider_name} stage={stage}")
                 started = time.monotonic()
-                result = await provider.complete(prompt, stage)
+                result = await provider.complete(prompt, stage, system)
                 if accept is not None and not accept(result):
                     raise UnusableResponse(
                         f"{provider_name} returned a response {stage or 'the caller'} "

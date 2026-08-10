@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Param, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { MemoryService } from './memory.service';
+import { ExtractMemoryDto, ReinforceMemoryDto } from './dto/memory.dto';
 
 @Controller('memory')
 export class MemoryController {
@@ -13,19 +14,19 @@ export class MemoryController {
   }
 
   @Post('extract')
-  async extract(@Body() body: { child_id: string; story_id: string; memories: any[] }, @Req() req: Request) {
+  async extract(@Body() dto: ExtractMemoryDto, @Req() req: Request) {
     const tenantId = (req as any).tenantId;
-    return this.memoryService.extractFromStory(body.child_id, tenantId, body.memories, body.story_id);
+    return this.memoryService.extractFromStory(dto.child_id, tenantId, dto.memories, dto.story_id);
   }
 
   @Post('reinforce')
-  async reinforce(@Body() body: { child_id: string; type: string; key: string; value: string; action: 'boost' | 'reduce' }, @Req() req: Request) {
+  async reinforce(@Body() dto: ReinforceMemoryDto, @Req() req: Request) {
     const tenantId = (req as any).tenantId;
-    return this.memoryService.reinforce(body.child_id, tenantId, {
-      type: body.type,
-      key: body.key,
-      value: body.value,
-      action: body.action,
+    return this.memoryService.reinforce(dto.child_id, tenantId, {
+      type: dto.type,
+      key: dto.key,
+      value: dto.value,
+      action: dto.action,
     });
   }
 }
