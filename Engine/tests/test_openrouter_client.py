@@ -2,6 +2,23 @@ import pytest
 from core.llm.openrouter_client import OpenRouterClient
 from core.llm.openai_client import AllKeysExhausted
 
+
+@pytest.fixture(autouse=True)
+def no_ambient_openrouter_keys(monkeypatch):
+    """Start every test from a machine with no OpenRouter credentials.
+
+    `main.py` calls `load_dotenv()` at import, so as soon as anything in the
+    session imports it, a developer's real `Engine/.env` is in `os.environ` for
+    the rest of the run. `OpenRouterClient` merges `OPENROUTER_API_KEY` into
+    whatever `OPENROUTER_API_KEYS` holds, so a test that sets three keys got
+    four -- and which tests failed depended on collection order, on whether a
+    `.env` existed, and on what was in it. Clearing both here makes these tests
+    describe the client instead of the developer's machine.
+    """
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEYS", raising=False)
+
+
 class TestOpenRouterClient:
     def test_init_raises_without_key(self, monkeypatch):
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)

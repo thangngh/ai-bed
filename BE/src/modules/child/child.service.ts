@@ -14,11 +14,32 @@ export class ChildService {
     this.repo = this.dataSource.getRepository(ChildProfile);
   }
 
+  /**
+   * The profile for this child, creating it on first use.
+   *
+   * The age on an existing profile is refreshed from the request rather than
+   * kept, and that is a safety decision, not a convenience one. `StoryService`
+   * sends `child.age` to the Engine, which picks the developer prompt and the
+   * age-appropriate rules from it -- so a stale age means a story written to
+   * the wrong rules for the child in front of it. This lookup matches on name
+   * alone, so it used to return a profile created a year ago and silently
+   * discard the age the parent had just re-entered on the form: a 3-year-old
+   * kept getting stories written for the 5-6 band.
+   *
+   * The value is safe to trust here because it is the same validated field the
+   * DTO bounded to 3..6, and the Engine bounds it again.
+   */
   async getOrCreate(tenantId: string, dto: CreateChildProfileDto): Promise<ChildProfile> {
     const existing = await this.repo.findOne({
       where: { tenantId, childName: dto.child_name },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.age !== dto.age) {
+        existing.age = dto.age;
+        return this.repo.save(existing);
+      }
+      return existing;
+    }
 
     const profile = new ChildProfile();
     profile.childId = uuidv4();

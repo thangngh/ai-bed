@@ -12,6 +12,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Non-root. The Engine writes nothing to disk -- no volume, no cache, no
+# uploads -- so there is nothing for root to be needed for, and a container
+# that runs as root turns any RCE in a dependency into host-adjacent access.
+# Ownership is set explicitly because COPY lands files as root:root.
+RUN adduser --system --no-create-home --uid 10001 engine \
+    && chown -R engine /app
+USER engine
+
 EXPOSE 8000
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

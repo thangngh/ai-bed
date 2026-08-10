@@ -32,6 +32,15 @@ REVIEW_RESERVE_SECONDS = 8.0
 
 # A review that flags only language, structure or quality is not a safety
 # signal; failing closed on those would trade availability for nothing.
+#
+# `language` stays non-blocking even though stories are Vietnamese-only, and
+# that is not a gap. English is caught deterministically upstream, by
+# `check_vietnamese_purity` in `_validate_writer_full`, where the answer is a
+# regenerate rather than a fallback. By the time a story reaches the reviewer it
+# has already passed that check, so a language flag here is the reviewer's
+# opinion about phrasing -- and trading a written story for the "máy kể chuyện
+# hơi mệt" fallback over one disputed word is a bad deal for the child waiting
+# to hear it.
 BLOCKING_ISSUE_TYPES = {"safety"}
 BLOCKING_SEVERITIES = {"high"}
 
@@ -40,6 +49,23 @@ BLOCKING_SEVERITIES = {"high"}
 REVIEW_RETRY_HINT = (
     "Your previous reply could not be parsed. Reply with the JSON object "
     "only -- no prose, no code fences."
+)
+
+# Sent back to the writer after a rejected attempt. It names both rules the
+# writer can plausibly break, because the hint is chosen before the failure is
+# known: the alternative -- feeding the validator's error strings back -- would
+# put model-written text (a section `type`, a `word_count`) into the system
+# channel, which is the one place this pipeline works to keep free of it.
+#
+# Fixed operator text, so it stays on the right side of that line.
+WRITER_RETRY_HINT = (
+    "Your previous story was rejected. Check both of these before answering:\n"
+    "1. It must contain at least one content item shaped "
+    '{"type": "interaction", "text": "...", "prompt": "...", "order": N} '
+    "that asks the child a question by name.\n"
+    "2. Every word of the story -- title, section text and interaction prompts "
+    "-- must be Vietnamese. Not one English word, not even in a name or an "
+    "exclamation. Translate anything that is not Vietnamese."
 )
 
 
@@ -198,12 +224,7 @@ class StoryPipeline:
             writer_raw = await self._call_retry(
                 {"system": guardrails, "user": writer_prompt}, "writer", max_retries=2,
                 validator=lambda d: self._validate_writer_full(d),
-                retry_hint=(
-                    "Your previous story was rejected because it is missing an "
-                    "'interaction' section. Add at least one content item with "
-                    '{"type": "interaction", "text": "...", "prompt": "...", "order": N} '
-                    "that asks the child a question by name."
-                ),
+                retry_hint=WRITER_RETRY_HINT,
                 reserve=REVIEW_RESERVE_SECONDS,
             )
             if not writer_raw:
@@ -333,10 +354,21 @@ class StoryPipeline:
         depth_result = self.validator.check_section_depth(content)
         if not depth_result.valid:
             return ValidationResult(valid=False, errors=depth_result.errors)
-        full_text = str(data)
-        purity_result = self.validator.check_vietnamese_purity(full_text)
+        # Stories are Vietnamese only; English is deferred to MVP 2.1. This used
+        # to log a warning and then `return schema_result` anyway, so the check
+        # ran on every story and changed nothing -- an English sentence reached
+        # the child and left a line in a log nobody reads.
+        #
+        # Rejecting here rather than at the gate is what makes it affordable:
+        # an invalid writer result is retried by `_call_retry`, so the story is
+        # regenerated in Vietnamese. Only a writer that cannot manage it across
+        # every attempt reaches the fallback.
+        purity_result = self.validator.check_vietnamese_purity(
+            self.validator.story_text(data)
+        )
         if not purity_result.valid:
             logger.warning(f"Vietnamese purity: {purity_result.errors}")
+            return ValidationResult(valid=False, errors=purity_result.errors)
         return schema_result
 
     async def _review_story(self, story: dict, safety_rules: str = "") -> dict:

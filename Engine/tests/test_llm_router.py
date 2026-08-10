@@ -8,7 +8,7 @@ class MockClient(BaseLLMClient):
         self.name = name
         self.should_fail = should_fail
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         if self.should_fail:
             raise Exception(f"{self.name} failed")
         return f"{self.name}:{prompt[:20]}"
@@ -167,7 +167,7 @@ class RecordingClient(BaseLLMClient):
         self.log = log
         self.should_fail = should_fail
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         self.log.append(self.name)
         if self.should_fail:
             raise Exception(f"{self.name} failed")
@@ -268,7 +268,7 @@ class UnusableClient:
         self.log = log
         self.payload = payload
 
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         self.log.append(self.name)
         return self.payload
 

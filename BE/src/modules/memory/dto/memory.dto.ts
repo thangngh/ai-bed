@@ -12,6 +12,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { IsChildSafeText } from '../../../common/validation/child-text';
 
 /**
  * Memory values are replayed into the prompt of every later story for the same
@@ -46,11 +47,16 @@ export class MemoryItemDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(MEMORY_KEY_MAX)
+  @IsChildSafeText()
   key!: string;
 
+  // A memory is replayed into the prompt of every later story for this child,
+  // so it gets the content check as well as the structural ones -- the only
+  // input where being wrong once is being wrong forever.
   @IsString()
   @IsNotEmpty()
   @MaxLength(MEMORY_VALUE_MAX)
+  @IsChildSafeText({ content: true })
   value!: string;
 
   @IsOptional()
@@ -90,11 +96,16 @@ export class ReinforceMemoryDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(MEMORY_KEY_MAX)
+  @IsChildSafeText()
   key!: string;
 
+  // A memory is replayed into the prompt of every later story for this child,
+  // so it gets the content check as well as the structural ones -- the only
+  // input where being wrong once is being wrong forever.
   @IsString()
   @IsNotEmpty()
   @MaxLength(MEMORY_VALUE_MAX)
+  @IsChildSafeText({ content: true })
   value!: string;
 
   @IsIn(['boost', 'reduce'])

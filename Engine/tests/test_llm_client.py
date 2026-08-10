@@ -3,7 +3,7 @@ from core.llm.client import BaseLLMClient
 
 
 class ConcreteClient(BaseLLMClient):
-    async def complete(self, prompt: str, stage: str = "") -> str:
+    async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         return f"response:{prompt[:10]}"
 
 

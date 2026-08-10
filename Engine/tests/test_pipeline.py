@@ -12,7 +12,7 @@ class MockRouter:
         self.call_count = 0
         self.prompts = []
 
-    async def complete(self, prompt: str, stage: str = "", accept=None):
+    async def complete(self, prompt: str, stage: str = "", accept=None, system: str = ""):
         self.call_count += 1
         self.prompts.append(stage)
         return self.responses.get(stage, "{}")
@@ -36,7 +36,7 @@ class TestStoryPipeline:
     @pytest.mark.asyncio
     async def test_fallback_on_all_failures(self):
         class FailingRouter:
-            async def complete(self, prompt, stage="", accept=None):
+            async def complete(self, prompt, stage="", accept=None, system=""):
                 raise Exception("LLM down")
 
         pipeline = StoryPipeline(FailingRouter())
@@ -85,7 +85,7 @@ class TestStoryPipeline:
                 self.prompts = []
                 self.writer_calls = 0
 
-            async def complete(self, prompt, stage="", accept=None):
+            async def complete(self, prompt, stage="", accept=None, system=""):
                 self.prompts.append((stage, prompt))
                 if stage == "planner":
                     return '{"title": "Test", "story_structure": {"sections": [{"order": 0, "type": "opening", "description": "..."}, {"order": 1, "type": "context", "description": "..."}], "moral": "good"}}'
@@ -150,7 +150,7 @@ class SlowRouter:
         self.delay = delay
         self.call_count = 0
 
-    async def complete(self, prompt: str, stage: str = "", accept=None):
+    async def complete(self, prompt: str, stage: str = "", accept=None, system: str = ""):
         self.call_count += 1
         await asyncio.sleep(self.delay)
         return "{}"
@@ -270,7 +270,7 @@ class TierRouter:
         self.tried: list[tuple[str, int]] = []
         self.call_count = 0
 
-    async def complete(self, prompt: str, stage: str = "", accept=None):
+    async def complete(self, prompt: str, stage: str = "", accept=None, system: str = ""):
         self.call_count += 1
         answers = self.tiers.get(stage, ['{"safety_verdict": "APPROVED", "issues": [], "quality_score": 4}'])
         for tier, raw in enumerate(answers):

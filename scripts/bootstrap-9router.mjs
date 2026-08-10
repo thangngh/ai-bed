@@ -35,7 +35,12 @@ const DEFAULT_COMBO_MODELS = [
 function parseArgs(argv) {
   const args = {
     replicas: ['http://localhost:20129', 'http://localhost:20130'],
-    password: process.env.NINEROUTER_PASSWORD || 'aibedtime123',
+    // No fallback. This script onboards a replica *and* mints its API key, so
+    // a hardcoded default here is the same committed password the compose file
+    // used to carry -- see the note on INITIAL_PASSWORD in
+    // docker-compose.9router-ha.yml. Missing is checked after parsing, so
+    // --password still works.
+    password: process.env.NINEROUTER_PASSWORD || '',
     combo: 'opencode',
     models: DEFAULT_COMBO_MODELS,
     keyName: 'ai-bedtime-engine',
@@ -150,6 +155,16 @@ async function smokeTest(base, apiKey, model) {
 
 async function main() {
   const args = parseArgs(process.argv);
+  if (!args.password) {
+    // Fail closed. The alternative -- carry on with an empty password -- ends
+    // in a confusing 401 from the login below, which reads like a broken
+    // replica rather than a missing variable.
+    console.error(
+      'No password. Set NINEROUTER_PASSWORD (see .env.example) or pass --password.\n' +
+      'It must match the INITIAL_PASSWORD the replica volume was created with.',
+    );
+    process.exit(1);
+  }
   console.log(`Bootstrapping ${args.replicas.length} 9router replica(s)\n`);
 
   const results = [];

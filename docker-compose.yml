@@ -35,6 +35,19 @@ services:
       # on this network -- see require_engine_key in Engine/main.py.
       ENGINE_API_KEY: ${ENGINE_API_KEY:-}
     restart: unless-stopped
+    # Nothing in the Engine writes to disk, so the whole filesystem can be
+    # read-only; /tmp is the one path a Python process still needs.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      # Stops a process inside from gaining privileges via setuid binaries --
+      # the step an exploit takes after it has code execution, not before.
+      - no-new-privileges:true
+    # A ceiling, not a reservation. Without one, a request flood in any single
+    # container exhausts the host and takes the other two down with it.
+    mem_limit: 512m
+    cpus: 1.0
     healthcheck:
       # raise_for_status matters: httpx.get alone returns for a 500 as happily
       # as for a 200, so the check would pass on a broken Engine.
@@ -66,6 +79,12 @@ services:
       engine:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    # Not read_only: SQLite needs to write its database and its -wal/-shm
+    # sidecars into the mounted volume.
+    mem_limit: 512m
+    cpus: 1.0
     volumes:
       - be-data:/app/data
     healthcheck:
@@ -79,16 +98,27 @@ services:
     build:
       context: ./FE
       dockerfile: Dockerfile
+    # The one and only published port in the stack. Everything else is reachable
+    # by service name on the compose network and nowhere else, so this is the
+    # single door: every request pays nginx's per-IP rate limit, and there is no
+    # path to the Engine's LLM budget that skips it.
+    #
+    # Container-side 8080 because the image is nginx-unprivileged and its worker
+    # cannot bind a privileged port; the host side is still 80.
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-80}:8080"
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
     healthcheck:
       # Checks the proxy hop as well as the SPA shell: a frontend that serves
       # index.html but cannot reach the BE is not usable.
-      test: ["CMD", "wget", "-qO-", "http://localhost/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

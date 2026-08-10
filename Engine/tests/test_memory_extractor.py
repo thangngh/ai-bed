@@ -4,7 +4,7 @@ from core.memory_extractor import MemoryExtractor
 
 
 class MockRouter:
-    async def complete(self, prompt, stage=""):
+    async def complete(self, prompt, stage="", system=""):
         return '{"memories": [{"type": "interest", "key": "favorite_theme", "value": "rồng", "confidence": 0.8, "source": "..."}]}'
 
 
@@ -20,7 +20,7 @@ class TestMemoryExtractor:
     @pytest.mark.asyncio
     async def test_filter_low_confidence(self):
         class LowConfRouter:
-            async def complete(self, prompt, stage=""):
+            async def complete(self, prompt, stage="", system=""):
                 return '{"memories": [{"type": "interest", "key": "bad", "value": "low", "confidence": 0.1, "source": "..."}]}'
 
         extractor = MemoryExtractor(LowConfRouter())
@@ -37,7 +37,7 @@ class TestMemoryExtractor:
     async def test_extract_from_fenced_json(self):
         """What the models actually return: a ```json block wrapped in prose."""
         class FencedRouter:
-            async def complete(self, prompt, stage=""):
+            async def complete(self, prompt, stage="", system=""):
                 return (
                     'Here are the memories:\n```json\n'
                     '{"memories": [{"type": "character", "key": "favorite", '
@@ -52,7 +52,7 @@ class TestMemoryExtractor:
     @pytest.mark.asyncio
     async def test_extract_from_bare_array(self):
         class ArrayRouter:
-            async def complete(self, prompt, stage=""):
+            async def complete(self, prompt, stage="", system=""):
                 return '[{"type": "theme", "key": "t", "value": "biển", "confidence": 0.7}]'
 
         extractor = MemoryExtractor(ArrayRouter())
@@ -62,7 +62,7 @@ class TestMemoryExtractor:
     @pytest.mark.asyncio
     async def test_unparseable_response_yields_no_memories(self):
         class ProseRouter:
-            async def complete(self, prompt, stage=""):
+            async def complete(self, prompt, stage="", system=""):
                 return 'I could not find any memories in this story.'
 
         extractor = MemoryExtractor(ProseRouter())
@@ -76,7 +76,7 @@ class TestMemoryExtractor:
         monkeypatch.setenv("MEMORY_EXTRACT_TIMEOUT_SECONDS", "0.05")
 
         class SlowRouter:
-            async def complete(self, prompt, stage=""):
+            async def complete(self, prompt, stage="", system=""):
                 await asyncio.sleep(5)
                 return '{"memories": []}'
 

@@ -18,6 +18,12 @@ from .sanitize import (
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+# The audience. Not a tuning knob: the developer templates, the system prompt's
+# safety rules and every review criterion are written for this band, so an age
+# outside it has no reviewed behaviour to fall back on.
+MIN_AGE = 3
+MAX_AGE = 6
+
 # Per-field caps for the user tier. Every one of these is parent-supplied text
 # that ends up in the prompt, so none of them may carry a newline or a fence
 # character into the template.
@@ -40,17 +46,42 @@ class PromptRegistry:
         path = self.templates_dir / "system" / "default.txt"
         return path.read_text(encoding="utf-8")
 
+    @staticmethod
+    def _clamp_age(age) -> int:
+        """The audience's age, as an int in 3..6.
+
+        `age` reaches this function from a request body and is then
+        interpolated into a *filename*. The request schema bounds it, but this
+        is the one place where a value that slipped that bound would stop
+        being data and start being a path -- an `age` of `../../../../etc/passwd`
+        reads a file, and one of `9` silently selects the wrong safety rules
+        for a 3-year-old. Neither is worth leaving to a check in another
+        module, so the coercion happens where the risk is.
+
+        Clamping rather than raising: this is the second line, and a story
+        told with the 3-4 rules is the safe way to be wrong.
+        """
+        try:
+            value = int(age)
+        except (TypeError, ValueError):
+            return MIN_AGE
+        return max(MIN_AGE, min(MAX_AGE, value))
+
     def load_developer(self, age: int) -> str:
         """Load age-appropriate developer prompt."""
+        safe_age = self._clamp_age(age)
         candidates = [
-            f"{age}.txt",
-            "3-4.txt" if age <= 4 else "5-6.txt",
+            f"{safe_age}.txt",
+            "3-4.txt" if safe_age <= 4 else "5-6.txt",
+            "3-4.txt",
         ]
         for name in candidates:
             path = self.templates_dir / "developer" / name
             if path.exists():
                 return path.read_text(encoding="utf-8")
-        return self.load_developer(3)
+        raise FileNotFoundError(
+            f"no developer template for age {safe_age} in {self.templates_dir / 'developer'}"
+        )
 
     def load_user(self) -> str:
         path = self.templates_dir / "user" / "default.txt"
@@ -138,6 +169,12 @@ class PromptRegistry:
         for k, v in defaults.items():
             data.setdefault(k, v)
 
+        # The age the prompt *states* and the age the prompt is *selected by*
+        # have to be the same number, or the story is written to one set of
+        # rules and labelled with another.
+        safe_age = self._clamp_age(age)
+        data["age"] = str(safe_age)
+
         fields = {
             key: sanitize_field(data.get(key), limit)
             for key, limit in FIELD_LIMITS.items()
@@ -153,6 +190,6 @@ class PromptRegistry:
 
         return {
             "system": self.load_system(),
-            "developer": self.load_developer(age),
+            "developer": self.load_developer(safe_age),
             "user": user_prompt,
         }

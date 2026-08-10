@@ -14,6 +14,7 @@ import {
 import { AgeGroup, GenderOption, StoryFormInput, ChildProfile, MemoryContext } from '../types';
 import { TOPIC_SUGGESTIONS, LESSON_SUGGESTIONS, MOOD_SUGGESTIONS } from '../data/sampleStories';
 import { memoryClient } from '../utils/memoryClient';
+import { childTextError, FIELD_LIMITS } from '../utils/childText';
 
 interface FormScreenProps {
   onSubmit: (data: StoryFormInput) => void;
@@ -41,7 +42,12 @@ export const FormScreen: React.FC<FormScreenProps> = ({
   const [mood, setMood] = useState('Vui vẻ');
   const [favoriteCharacter, setFavoriteCharacter] = useState(activeChild?.preferredCharacters || '');
 
-  const [errors, setErrors] = useState<{ childName?: string }>({});
+  const [errors, setErrors] = useState<{
+    childName?: string;
+    customTopic?: string;
+    customLesson?: string;
+    favoriteCharacter?: string;
+  }>({});
 
   const [memoryContext, setMemoryContext] = useState<MemoryContext | null>(null);
   const [memoryLoading, setMemoryLoading] = useState(false);
@@ -63,6 +69,27 @@ export const FormScreen: React.FC<FormScreenProps> = ({
       return;
     }
 
+    // The same rules the BE and the Engine enforce, said here so a parent
+    // learns about them at the keyboard rather than after a loading screen.
+    // Only the free-text boxes need checking -- the rest of the form is
+    // buttons, whose values this component chose itself.
+    const trimmedCharacter = favoriteCharacter.trim();
+    const found = {
+      childName: childTextError(trimmedName),
+      customTopic: childTextError(customTopic.trim()),
+      customLesson: childTextError(customLesson.trim()),
+      favoriteCharacter: childTextError(trimmedCharacter),
+    };
+    if (Object.values(found).some(Boolean)) {
+      setErrors({
+        childName: found.childName ?? undefined,
+        customTopic: found.customTopic ?? undefined,
+        customLesson: found.customLesson ?? undefined,
+        favoriteCharacter: found.favoriteCharacter ?? undefined,
+      });
+      return;
+    }
+
     setErrors({});
     const finalTopic = customTopic.trim() || favoriteTopic;
     const finalLesson = customLesson.trim() || lesson;
@@ -74,7 +101,7 @@ export const FormScreen: React.FC<FormScreenProps> = ({
       gender,
       lesson: finalLesson,
       mood,
-      favoriteCharacter: favoriteCharacter.trim(),
+      favoriteCharacter: trimmedCharacter,
     });
   };
 
@@ -150,11 +177,12 @@ export const FormScreen: React.FC<FormScreenProps> = ({
             <input
               id="input-child-name"
               type="text"
+              maxLength={FIELD_LIMITS.childName}
               placeholder="Nhập tên bé (Ví dụ: Bé An, Bé Minh, Bơ...)"
               value={childName}
               onChange={(e) => {
                 setChildName(e.target.value);
-                if (errors.childName) setErrors({});
+                if (errors.childName) setErrors({ ...errors, childName: undefined });
               }}
               className={`w-full px-4 py-3 rounded-2xl text-sm border focus:outline-none focus:ring-2 transition-all ${
                 errors.childName
@@ -233,15 +261,24 @@ export const FormScreen: React.FC<FormScreenProps> = ({
               <input
                 id="input-custom-topic"
                 type="text"
+                maxLength={FIELD_LIMITS.theme}
                 placeholder="Hoặc nhập chủ đề khác (ví dụ: Tàu hỏa, Xứ sở kẹo ngọt...)"
                 value={customTopic}
-                onChange={(e) => setCustomTopic(e.target.value)}
+                onChange={(e) => {
+                  setCustomTopic(e.target.value);
+                  if (errors.customTopic) setErrors({ ...errors, customTopic: undefined });
+                }}
                 className={`w-full px-4 py-2.5 rounded-xl text-xs border focus:outline-none focus:ring-2 transition-all ${
-                  isNightMode
+                  errors.customTopic
+                    ? 'border-rose-500 focus:ring-rose-500/30'
+                    : isNightMode
                     ? 'bg-slate-900 border-slate-700 text-slate-100 focus:ring-emerald-500/40'
                     : 'bg-amber-50/50 border-amber-200 text-amber-950 focus:ring-emerald-500/30'
                 }`}
               />
+              {errors.customTopic && (
+                <p className="text-xs text-rose-500 font-medium pl-1 pt-1">{errors.customTopic}</p>
+              )}
             </div>
           </div>
         </div>
@@ -332,15 +369,24 @@ export const FormScreen: React.FC<FormScreenProps> = ({
                 <input
                   id="input-custom-lesson"
                   type="text"
+                  maxLength={FIELD_LIMITS.goal}
                   placeholder="Hoặc bài học riêng (Ví dụ: Tự cất đồ chơi, Rửa tay sạch...)"
                   value={customLesson}
-                  onChange={(e) => setCustomLesson(e.target.value)}
+                  onChange={(e) => {
+                    setCustomLesson(e.target.value);
+                    if (errors.customLesson) setErrors({ ...errors, customLesson: undefined });
+                  }}
                   className={`w-full px-3.5 py-2 rounded-xl text-xs border focus:outline-none transition-all ${
-                    isNightMode
+                    errors.customLesson
+                      ? 'border-rose-500'
+                      : isNightMode
                       ? 'bg-slate-900 border-slate-700 text-slate-100'
                       : 'bg-amber-50/50 border-amber-200 text-amber-950'
                   }`}
                 />
+                {errors.customLesson && (
+                  <p className="text-xs text-rose-500 font-medium pl-1">{errors.customLesson}</p>
+                )}
               </div>
 
               {/* Tâm trạng của bé hôm nay */}
@@ -380,15 +426,26 @@ export const FormScreen: React.FC<FormScreenProps> = ({
                 <input
                   id="input-favorite-character"
                   type="text"
+                  maxLength={FIELD_LIMITS.favoriteCharacter}
                   placeholder="Ví dụ: Chú gấu Pooh, Khủng long Rex, Thỏ Bông..."
                   value={favoriteCharacter}
-                  onChange={(e) => setFavoriteCharacter(e.target.value)}
+                  onChange={(e) => {
+                    setFavoriteCharacter(e.target.value);
+                    if (errors.favoriteCharacter) {
+                      setErrors({ ...errors, favoriteCharacter: undefined });
+                    }
+                  }}
                   className={`w-full px-3.5 py-2.5 rounded-xl text-xs border focus:outline-none transition-all ${
-                    isNightMode
+                    errors.favoriteCharacter
+                      ? 'border-rose-500'
+                      : isNightMode
                       ? 'bg-slate-900 border-slate-700 text-slate-100'
                       : 'bg-amber-50/50 border-amber-200 text-amber-950'
                   }`}
                 />
+                {errors.favoriteCharacter && (
+                  <p className="text-xs text-rose-500 font-medium pl-1">{errors.favoriteCharacter}</p>
+                )}
               </div>
             </div>
           )}

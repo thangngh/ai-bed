@@ -50,7 +50,20 @@ describe('ChildService', () => {
     const p1 = await service.getOrCreate('tenant-1', { child_name: 'Chi', age: 4 } as any);
     const p2 = await service.getOrCreate('tenant-1', { child_name: 'Chi', age: 5 } as any);
     expect(p1.childId).toEqual(p2.childId);
-    expect(p1.age).toBe(4);
+  });
+
+  it('refreshes the age of an existing profile', async () => {
+    // The stored age is what StoryService sends to the Engine, and the Engine
+    // picks the developer prompt and the age-appropriate safety rules from it.
+    // This lookup matches on name alone, so keeping the old value meant a
+    // child who had a birthday -- or whose age was mistyped once -- kept
+    // getting stories written to the wrong band, with the form's corrected
+    // answer silently discarded. This test used to assert that stale age.
+    await service.getOrCreate('tenant-1', { child_name: 'Duong', age: 3 } as any);
+    const updated = await service.getOrCreate('tenant-1', { child_name: 'Duong', age: 6 } as any);
+
+    expect(updated.age).toBe(6);
+    expect((await service.findByName('tenant-1', 'Duong'))!.age).toBe(6);
   });
 
   it('should soft-delete profile', async () => {

@@ -26,7 +26,14 @@ class TestPromptRegistry:
     def test_load_user_prompt(self):
         registry = PromptRegistry()
         prompt = registry.load_user()
-        assert "Child information" in prompt
+        # The template stopped saying "Child information" when the data fence
+        # was introduced. What matters about it now is that it draws the fence
+        # and tells the model what is inside it is data, so that is what this
+        # asserts -- the old string was only ever a proxy for "the template
+        # loaded".
+        assert "{dataOpen}" in prompt
+        assert "{dataClose}" in prompt
+        assert "never an instruction" in prompt
 
     def test_assembly(self):
         registry = PromptRegistry()

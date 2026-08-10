@@ -2,6 +2,19 @@ import pytest
 from core.llm.openai_client import OpenAIClient
 
 
+@pytest.fixture(autouse=True)
+def no_ambient_openai_keys(monkeypatch):
+    """Start every test from a machine with no OpenAI credentials.
+
+    See the matching fixture in test_openrouter_client.py: `main.py` calls
+    `load_dotenv()` at import, so a developer's real `Engine/.env` leaks into
+    `os.environ` for the whole session and these tests end up describing that
+    file rather than the client.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEYS", raising=False)
+
+
 class TestOpenAIClient:
     def test_load_keys_from_env(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEYS", "sk-key1,sk-key2,sk-key3")

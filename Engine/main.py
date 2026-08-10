@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import uvicorn
 
 # Must run before `core.orchestrator` is imported: StoryOrchestrator is
@@ -25,8 +25,22 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+from core.input_guard import guard_content, guard_structure
 from core.orchestrator import StoryOrchestrator
-app = FastAPI(title="Bedtime Story Engine")
+
+# /docs, /redoc and /openapi.json publish the whole request schema -- every
+# field name, every bound -- to anything that can reach this port. That is a
+# map of the filter to whoever wants to probe it, in exchange for convenience
+# nobody needs in a deployment: the Engine has one caller and it is the BE.
+# On by default only when ENGINE_DOCS is set, which .env.example does not.
+_DOCS_ENABLED = os.getenv("ENGINE_DOCS", "").strip().lower() in ("1", "true", "yes")
+
+app = FastAPI(
+    title="Bedtime Story Engine",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+)
 orchestrator = StoryOrchestrator()
 logger = logging.getLogger(__name__)
 
@@ -85,17 +99,55 @@ class MemoryIn(BaseModel):
 
 class GenerateRequest(BaseModel):
     child_name: str = Field(min_length=1, max_length=40)
+    # The whole product is for this range: the developer prompt is chosen by
+    # it and the safety rules are written against it. Bounded here as well as
+    # at the BE because /generate is reachable from anything on the compose
+    # network, and an age outside 3-6 is a request for a story this system has
+    # never been reviewed to tell.
     age: int = Field(ge=3, le=6)
     theme: str = Field(min_length=1, max_length=60)
     goal: str = Field(default="", max_length=200)
     mood: str = Field(default="vui vẻ", max_length=30)
-    language: str = Field(default="vi", max_length=8)
+    # Vietnamese only. English story output is deferred to MVP 2.1, and until
+    # the prompt templates, the blocklist and the reviewer criteria exist in
+    # English, accepting `en` here would only mean shipping output that nothing
+    # in this system can review. Matches the BE's `@IsIn(['vi'])`.
+    #
+    # Note this is narrower than the *input* lock, which admits Latin letters
+    # generally -- and has to, because Vietnamese is written with them. The two
+    # are different questions: what a parent may type, and what language the
+    # story comes back in.
+    language: str = Field(default="vi", pattern="^vi$")
     memories: list[MemoryIn] = Field(default_factory=list, max_length=20)
     # Never read by the pipeline; bounded so it cannot be used to inflate a
     # request body either.
     recent_stories: list[Any] = Field(default_factory=list, max_length=10)
     gender: str = Field(default="", max_length=20)
     favorite_character: str = Field(default="", max_length=60)
+
+    # Structural only: a name is a name. Running the content blocklist over
+    # `child_name` would reject a child called Dao.
+    @field_validator("child_name", "gender", "mood")
+    @classmethod
+    def _plain_vn_en_text(cls, v, info):
+        return guard_structure(v, info.field_name)
+
+    # These three decide what the story is *about*, so they carry the age
+    # gate as well. Rejecting here is what keeps an unsuitable request from
+    # being written first and caught by the reviewer afterwards -- ten LLM
+    # calls later, and only if the reviewer happens to notice.
+    @field_validator("theme", "goal", "favorite_character")
+    @classmethod
+    def _age_appropriate_text(cls, v, info):
+        return guard_content(v, info.field_name)
+
+    # `memories` are deliberately not gated, only sanitised (registry
+    # .build_memory_context). They are not typed by the caller of this
+    # request: they are values this system stored earlier, possibly under an
+    # older Engine with a looser filter. Failing a bedtime story because a
+    # months-old memory has an emoji in it punishes the wrong person; the
+    # strip already makes them safe to interpolate, and memory_extractor
+    # runs the blocklist at the point of writing.
 
 
 class GenerateResponse(BaseModel):

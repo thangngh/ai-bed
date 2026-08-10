@@ -38,11 +38,16 @@
 services:
   9router-a:
     image: decolua/9router:latest
-    # Exposed directly so scripts/bootstrap-9router.mjs and
-    # scripts/probe-9router-identity.mjs can address a single replica; the
-    # Engine talks to the balancer, not to these.
+    # Bound to loopback, not 0.0.0.0. The operator scripts
+    # (scripts/bootstrap-9router.mjs, scripts/probe-9router-identity.mjs) run on
+    # the host and need to address a single replica, which is the only reason
+    # this is published at all -- the Engine talks to the balancer by service
+    # name. Published on 0.0.0.0 it was a second door into the stack: the
+    # 9router dashboard, reachable from the network with a password that
+    # defaults to a value written in this repo, and behind it the provider API
+    # keys. 127.0.0.1 keeps the scripts working and closes the door.
     ports:
-      - "20129:20128"
+      - "127.0.0.1:20129:20128"
     environment:
       DATA_DIR: /app/data
       HOSTNAME: 0.0.0.0
@@ -51,7 +56,13 @@ services:
       # A fresh 9router answers 401 on /v1/* until a password is actually
       # persisted -- without this the container comes up "healthy" but serves
       # nothing. Only applied on first init of the volume.
-      INITIAL_PASSWORD: ${NINEROUTER_PASSWORD:-aibedtime123}
+      # No default, and `:?` so compose refuses to start rather than quietly
+      # applying one. The old fallback was a literal password committed to this
+      # repo: an operator who forgot the variable got a working stack whose
+      # dashboard -- and the provider API keys behind it -- opened with a
+      # password anyone reading the source already knew. Applied only on first
+      # init of the volume, which is exactly when getting it wrong is permanent.
+      INITIAL_PASSWORD: ${NINEROUTER_PASSWORD:?set NINEROUTER_PASSWORD in .env -- there is no default}
       # Give a replica its own egress IP by pointing it at a distinct
       # outbound proxy. Without this, see the note above.
       HTTP_PROXY: ${REPLICA_A_PROXY:-}
@@ -72,14 +83,21 @@ services:
 
   9router-b:
     image: decolua/9router:latest
+    # Loopback for the same reason as replica A.
     ports:
-      - "20130:20128"
+      - "127.0.0.1:20130:20128"
     environment:
       DATA_DIR: /app/data
       HOSTNAME: 0.0.0.0
       NODE_ENV: production
       MACHINE_ID_SALT: replica-b
-      INITIAL_PASSWORD: ${NINEROUTER_PASSWORD:-aibedtime123}
+      # No default, and `:?` so compose refuses to start rather than quietly
+      # applying one. The old fallback was a literal password committed to this
+      # repo: an operator who forgot the variable got a working stack whose
+      # dashboard -- and the provider API keys behind it -- opened with a
+      # password anyone reading the source already knew. Applied only on first
+      # init of the volume, which is exactly when getting it wrong is permanent.
+      INITIAL_PASSWORD: ${NINEROUTER_PASSWORD:?set NINEROUTER_PASSWORD in .env -- there is no default}
       HTTP_PROXY: ${REPLICA_B_PROXY:-}
       HTTPS_PROXY: ${REPLICA_B_PROXY:-}
     volumes:
@@ -99,9 +117,12 @@ services:
   9router-lb:
     image: nginx:1.27-alpine
     # Deliberately NOT 20128: that is where a locally-installed 9router
-    # listens, and binding it here silently displaces it.
+    # listens, and binding it here silently displaces it. Loopback-bound like
+    # the replicas -- the Engine reaches this by service name on the compose
+    # network, so the published port is for the operator's own machine, and the
+    # stack keeps exactly one port open to the outside: the frontend's 80.
     ports:
-      - "${NINEROUTER_LB_PORT:-20127}:20128"
+      - "127.0.0.1:${NINEROUTER_LB_PORT:-20127}:20128"
     environment:
       # Rendered into the conf by the nginx image's envsubst entrypoint. An
       # unset key makes that replica answer 401, which the balancer treats as

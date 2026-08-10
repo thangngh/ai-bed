@@ -28,23 +28,32 @@ REVIEW_APPROVED = '{"safety_verdict": "APPROVED", "issues": [], "quality_score":
 
 
 class RecordingRouter:
-    """Captures the exact prompt text per stage.
+    """Captures both channels per stage.
 
-    MockRouter in test_pipeline.py records the stage name, not the prompt, so
-    it cannot show whether the safety rules reached the model.
+    MockRouter in test_pipeline.py records the stage name, not the text, so it
+    cannot show whether the safety rules reached the model -- or, now that the
+    tiers are split, *which channel* they reached it on. That distinction is the
+    control: operator rules travel in `system`, the parent's text travels in
+    `prompt`, and a test that cannot tell them apart cannot catch a regression
+    that merges them back together.
     """
 
     def __init__(self, responses: dict):
         self.responses = responses
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, str]] = []
 
-    async def complete(self, prompt: str, stage: str = "", accept=None):
-        self.calls.append((stage, prompt))
+    async def complete(self, prompt: str, stage: str = "", accept=None, system: str = ""):
+        self.calls.append((stage, prompt, system))
         value = self.responses.get(stage, "{}")
-        return value(len([s for s, _ in self.calls if s == stage])) if callable(value) else value
+        return value(len([s for s, _, _ in self.calls if s == stage])) if callable(value) else value
 
     def prompts_for(self, stage: str) -> list[str]:
-        return [p for (s, p) in self.calls if s == stage]
+        """The user turn: the task, plus the fenced untrusted data."""
+        return [p for (s, p, _) in self.calls if s == stage]
+
+    def systems_for(self, stage: str) -> list[str]:
+        """The system turn: operator instructions only."""
+        return [sys for (s, _, sys) in self.calls if s == stage]
 
     def count(self, stage: str) -> int:
         return len(self.prompts_for(stage))
@@ -72,9 +81,44 @@ class TestGuardrailsReachTheModel:
         result = await StoryPipeline(router).run(real_prompts())
 
         assert result.is_fallback is False
-        assert SAFETY_MARKER in router.prompts_for("planner")[0]
-        assert SAFETY_MARKER in router.prompts_for("writer")[0]
-        assert SAFETY_MARKER in router.prompts_for("reviewer")[0]
+        assert SAFETY_MARKER in router.systems_for("planner")[0]
+        assert SAFETY_MARKER in router.systems_for("writer")[0]
+        assert SAFETY_MARKER in router.systems_for("reviewer")[0]
+
+    @pytest.mark.asyncio
+    async def test_the_rules_never_travel_in_the_user_turn(self):
+        """The separation itself, not just the delivery.
+
+        Rules that arrive in the user turn sit in the same channel as the text
+        a parent typed, which is precisely the arrangement that gives a model
+        no structural reason to rank one above the other. Asserting only that
+        the rules *arrived* would pass just as happily if the pipeline went
+        back to concatenating the tiers.
+        """
+        router = RecordingRouter({
+            "planner": PLANNER_OK, "writer": WRITER_OK, "reviewer": REVIEW_APPROVED,
+        })
+        await StoryPipeline(router).run(real_prompts())
+
+        for stage in ("planner", "writer", "reviewer"):
+            assert SAFETY_MARKER not in router.prompts_for(stage)[0], stage
+
+    @pytest.mark.asyncio
+    async def test_the_parents_text_never_travels_in_the_system_turn(self):
+        """The other direction: untrusted data must not reach the system channel.
+
+        A `theme` that arrives among the operator rules is an instruction as
+        far as the provider's instruction hierarchy is concerned -- the exact
+        privilege escalation the fence and the tier split exist to prevent.
+        """
+        router = RecordingRouter({
+            "planner": PLANNER_OK, "writer": WRITER_OK, "reviewer": REVIEW_APPROVED,
+        })
+        await StoryPipeline(router).run(real_prompts())
+
+        # "rồng" is the theme real_prompts() supplies.
+        assert "rồng" in router.prompts_for("planner")[0]
+        assert "rồng" not in router.systems_for("planner")[0]
 
     @pytest.mark.asyncio
     async def test_writer_receives_the_age_rules(self):
@@ -83,8 +127,8 @@ class TestGuardrailsReachTheModel:
         })
         await StoryPipeline(router).run(real_prompts(age=4))
 
-        assert AGE_MARKER in router.prompts_for("writer")[0]
-        assert AGE_MARKER in router.prompts_for("planner")[0]
+        assert AGE_MARKER in router.systems_for("writer")[0]
+        assert AGE_MARKER in router.systems_for("planner")[0]
 
     @pytest.mark.asyncio
     async def test_reviewer_gets_safety_rules_but_not_the_arc_spec(self):
@@ -95,9 +139,9 @@ class TestGuardrailsReachTheModel:
         })
         await StoryPipeline(router).run(real_prompts(age=4))
 
-        reviewer_prompt = router.prompts_for("reviewer")[0]
-        assert SAFETY_MARKER in reviewer_prompt
-        assert AGE_MARKER not in reviewer_prompt
+        reviewer_system = router.systems_for("reviewer")[0]
+        assert SAFETY_MARKER in reviewer_system
+        assert AGE_MARKER not in reviewer_system
 
     @pytest.mark.asyncio
     async def test_writer_retry_still_carries_the_safety_rules(self):
@@ -112,9 +156,9 @@ class TestGuardrailsReachTheModel:
         })
         await StoryPipeline(router).run(real_prompts())
 
-        writer_prompts = router.prompts_for("writer")
-        assert len(writer_prompts) >= 2
-        assert all(SAFETY_MARKER in p for p in writer_prompts)
+        writer_systems = router.systems_for("writer")
+        assert len(writer_systems) >= 2
+        assert all(SAFETY_MARKER in s for s in writer_systems)
 
     @pytest.mark.asyncio
     async def test_empty_tiers_produce_no_blank_blocks(self):
@@ -126,6 +170,7 @@ class TestGuardrailsReachTheModel:
         await StoryPipeline(router).run({})
 
         assert not router.prompts_for("planner")[0].startswith("\n")
+        assert not router.systems_for("planner")[0].startswith("\n")
 
 
 class TestVerdictGate:
@@ -241,7 +286,10 @@ class TestUnparseableReview:
         result = await StoryPipeline(router).run(real_prompts())
 
         assert router.count("reviewer") == 2
-        assert "JSON object" in router.prompts_for("reviewer")[1]
+        # The re-ask hint is operator text about the previous reply, so it
+        # belongs in the system channel alongside the rules -- not next to the
+        # story it is being asked to judge.
+        assert "JSON object" in router.systems_for("reviewer")[1]
         assert result.is_fallback is True
 
     @pytest.mark.asyncio

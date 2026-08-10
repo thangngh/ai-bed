@@ -31,5 +31,13 @@ COPY --from=build /app/package.json ./
 # tenants and stories into the image.
 RUN mkdir -p data
 
+# Non-root, using the `node` user the base image already ships. `data/` has to
+# be chowned before the drop: it is the mount point for the be-data volume, and
+# Docker gives a fresh named volume the ownership of the directory it covers --
+# so getting this wrong means SQLite cannot create its files and the BE
+# crash-loops on first boot with EACCES.
+RUN chown -R node:node /app
+USER node
+
 EXPOSE 3001
 CMD ["node", "dist/main"]

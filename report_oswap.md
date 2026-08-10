@@ -3,13 +3,85 @@
 **Phạm vi:** toàn bộ repo `ai-bed` (FE React SPA, BE NestJS, Engine Python/FastAPI, docker-compose, nginx, deploy/9router HA overlay, scripts/).
 **Phương pháp:** static code review (đọc mã nguồn trực tiếp, có trích dẫn file:line), không có pentest động, không quét CVE trực tuyến, không kiểm thử trên môi trường production thật.
 **Khung đánh giá:** OWASP Top 10 Web Application Security Risks (2021) + OWASP Top 10 for LLM Applications (2025).
-**Ngày:** 2026-08-06.
+**Đánh giá gốc:** 2026-08-06 · **Cập nhật tiến độ:** 2026-08-10.
 
 > Lưu ý ngữ cảnh: sản phẩm tạo truyện ngủ cho trẻ 3–6 tuổi bằng tiếng Việt, nghĩa là dữ liệu xử lý (tên trẻ, tuổi, giới tính, sở thích, "memory" hành vi) là **PII trẻ em** — mức độ nhạy cảm cao hơn một ứng dụng thông thường, và các lỗ hổng dưới đây nên được ưu tiên xử lý theo đó (tương tự tinh thần COPPA/GDPR-K dù chưa xác định pháp lý áp dụng).
 
+> **Cách đọc tài liệu này.** Phần 1–4 là đánh giá gốc ngày 2026-08-06, **giữ nguyên** làm mốc so sánh. Phần 0 ngay bên dưới là trạng thái hiện tại. Backlog ở Phần 5 đã được đánh dấu trạng thái từng mục. Phần 6 là các phát hiện mới, không có trong đánh giá gốc.
+
 ---
 
-## 1. Tóm tắt điều hành
+## 0. Cập nhật tiến độ — 2026-08-10
+
+### 0.1 Điểm số: trước và sau
+
+| Nhóm | 2026-08-06 | 2026-08-10 | Thay đổi |
+|---|---|---|---|
+| OWASP Web Top 10:2021 | 46/100 | **58/100** | +12 |
+| OWASP Top 10 for LLM Apps 2025 | 55/100 | **76/100** | +21 |
+| **Tổng hợp** | **35/100** | **62/100** | **+27** |
+
+Điểm tổng hợp vẫn bị kéo xuống dưới trung bình cộng vì **A07 (không có xác thực tenant) chưa được xử lý** và vẫn là lỗ hổng chặn go-live. Mọi hạng mục Critical khác đã đóng.
+
+| # | Hạng mục | Trước | Sau | Ghi chú |
+|---|---|---|---|---|
+| A01 | Broken Access Control | 2 | **4** | Cổng Engine/BE đã đóng, có shared secret; nhưng danh tính tenant vẫn tự cấp |
+| A02 | Cryptographic Failures | 3 | **4** | Đã bỏ mật khẩu mặc định; vẫn chưa có TLS, PII vẫn plaintext trong localStorage |
+| A03 | Injection (cổ điển) | 9 | **9** | Không đổi — vốn đã tốt |
+| A04 | Insecure Design | 4 | **7** | Toàn bộ DTO đã có cap + content lock; rate limit per-IP ở nginx là lớp thực sự ràng buộc |
+| A05 | Security Misconfiguration | 3 | **8** | Security headers, `server_tokens off`, non-root cả 3 image, tắt `/docs`, resource limit, CORS allowlist |
+| A06 | Vulnerable & Outdated Components | 6 | **6** | Không đổi — vẫn chưa có CI audit / hash pinning |
+| A07 | Identification & Auth Failures | 1 | **1** | **Không đổi — vẫn là blocker** |
+| A08 | Software & Data Integrity | 6 | **6** | Không đổi |
+| A09 | Logging & Monitoring | 3 | **4** | Đã log lý do từ chối input; `tenant_id` vẫn log plaintext |
+| A10 | SSRF | 9 | **9** | Không đổi — vốn đã tốt |
+| LLM01 | Prompt Injection | 2 | **8** | Tách system/user thật, data fence, sanitizer NFKC, khoá script, input guard, cap độ dài |
+| LLM02 | Sensitive Info Disclosure | 4 | **4** | Không đổi |
+| LLM03 | Supply Chain | 5 | **5** | Không đổi |
+| LLM04 | Data & Model Poisoning | 3 | **8** | Blocklist ở cả điểm ghi (Engine + BE) và điểm đọc; DTO validate memory |
+| LLM05 | Improper Output Handling | 5 | **8** | `_gate_verdict` chuyển sang allow-list; UNREVIEWED chặn |
+| LLM06 | Excessive Agency | 10 | **10** | N/A |
+| LLM07 | System Prompt Leakage | 9 | **9** | Không đổi |
+| LLM08 | Vector & Embedding | 10 | **10** | N/A |
+| LLM09 | Misinformation | 4 | **7** | Blocklist mở rộng + word-boundary + NFKC; thêm age gate ở đầu vào; kiểm tra "thuần Việt" từ log-only thành chặn thật |
+| LLM10 | Unbounded Consumption | 3 | **7** | Cổng đóng, engine key, rate limit per-IP, resource limit |
+
+### 0.2 Ba rủi ro lớn nhất của đánh giá gốc — trạng thái
+
+1. ~~Không có xác thực thật ở bất kỳ đâu~~ → **CHƯA XỬ LÝ.** Tenant vẫn là UUID tự cấp. Console admin đã có auth thật (JWT + bcrypt + throttle) nhưng đường dữ liệu của phụ huynh thì chưa. Đây là mục P0 duy nhất còn mở.
+2. ~~Engine `:8000` publish thẳng ra host~~ → **ĐÃ XỬ LÝ.** `docker-compose.yml` không còn `ports` cho engine/backend, chỉ `expose`; thêm `ENGINE_API_KEY` (so sánh bằng `hmac.compare_digest`) làm khoá thứ hai.
+3. ~~Prompt injection không có lớp phòng thủ nào~~ → **ĐÃ XỬ LÝ**, xem Phần 6.
+
+### 0.3 Kiến trúc cổng: xác minh "chỉ một cổng 80"
+
+Yêu cầu là toàn stack chỉ mở duy nhất cổng 80 (nginx → FE). Đã xác minh bằng `docker compose config` trên cả hai file (base + HA overlay):
+
+| Service | Trước | Sau |
+|---|---|---|
+| `frontend` | `80:80`, container chạy root | **`80:8080`** trên `0.0.0.0` — cổng public duy nhất; image `nginx-unprivileged` |
+| `backend` | `3001:3001` trên `0.0.0.0` | `expose` only |
+| `engine` | `8000:8000` trên `0.0.0.0` | `expose` only |
+| `9router-a` | `20129:20128` trên `0.0.0.0` | **`127.0.0.1:20129`** |
+| `9router-b` | `20130:20128` trên `0.0.0.0` | **`127.0.0.1:20130`** |
+| `9router-lb` | `20127:20128` trên `0.0.0.0` | **`127.0.0.1:20127`** |
+
+Ba cổng 9router vẫn cần publish vì `scripts/bootstrap-9router.mjs` chạy trên host và phải gọi từng replica riêng lẻ; bind về loopback giữ script hoạt động mà không mở ra mạng. Sau thay đổi, `docker compose config` chỉ còn đúng một entry `published` không kèm `host_ip`, là cổng 80.
+
+### 0.4 Rate limit: các tầng hiện có
+
+| Tầng | Khoá theo | Giới hạn | Ghi chú |
+|---|---|---|---|
+| nginx (`FE/nginx.conf`) | IP thật (`CF-Connecting-IP`, chỉ tin từ `172.16.0.0/12`) | 10 req/phút, burst 20, 429 + Retry-After | **Tầng thực sự ràng buộc** — client không tự thoát được |
+| BE (`rate-limiter.middleware.ts`) | `X-Tenant-Id` tự khai | token bucket 10 / 60s | Định hình traffic trung thực; xoay UUID là reset |
+| BE (`queue.service.ts`) | tenant | hàng đợi Bottleneck | Chặn song song |
+| Engine (`pipeline.py`) | mỗi request | `PIPELINE_BUDGET_SECONDS` (45s), ~10 LLM call tối đa | Chặn chi phí mỗi truyện |
+| Docker | mỗi container | `mem_limit`, `cpus` | Mới — chặn một service làm cạn host |
+
+Engine vẫn **không có rate limit riêng** (LLM10). Điều đó chấp nhận được vì cổng 8000 đã đóng và có `ENGINE_API_KEY`, nhưng cần ghi nhận là một giả định kiến trúc, không phải một biện pháp.
+
+---
+
+## 1. Tóm tắt điều hành (đánh giá gốc 2026-08-06)
 
 | | |
 |---|---|
@@ -199,50 +271,191 @@
 
 ## 5. Backlog khắc phục (ưu tiên P0 → P3)
 
+Cột **Trạng thái** cập nhật 2026-08-10. `✅` = đã xử lý và có test; `⬜` = còn mở.
+
 ### P0 — Phải làm trước khi public ra ngoài dev/demo nội bộ
-| ID | Hạng mục | Việc cần làm | Thành phần | Effort |
+| ID | Trạng thái | Hạng mục | Việc cần làm | Thành phần |
 |---|---|---|---|---|
-| P0-1 | A01/A07/LLM10 | Không publish trực tiếp cổng Engine (8000) và BE (3001) ra `0.0.0.0`; chỉ frontend/nginx được expose. Thêm shared-secret/internal-only network giữa BE↔Engine | docker-compose.yml, Engine/main.py | M |
-| P0-2 | A07/A01 | Thêm cơ chế xác thực tenant thật (JWT/session có hạn, hoặc tối thiểu API key cấp qua kênh xác thực) thay vì UUID tự cấp không cần chứng minh | BE (tenant module) | L |
-| P0-3 | A01 | Gắn `TenantGuard` (đã viết sẵn nhưng chưa dùng) bằng `@UseGuards` cho toàn bộ controller tenant/child/story/feedback/memory | BE/src/modules/**/*.controller.ts | S |
-| P0-4 | LLM01/LLM04 | Thêm ràng buộc `@MaxLength`/schema cho `child_name`, `theme`, `goal`, `mood`, `favorite_character` (BE DTO) và `GenerateRequest`/`memories` (Engine Pydantic model) | BE DTOs, Engine/main.py | S |
-| P0-5 | A03/LLM01 | Chuyển `/memory/extract`, `/memory/reinforce` sang dùng DTO class có validation thay vì interface thuần (hiện bỏ qua `ValidationPipe` hoàn toàn) | BE/src/modules/memory | S |
+| P0-1 | ✅ | A01/A07/LLM10 | Không publish trực tiếp cổng Engine (8000) và BE (3001) ra `0.0.0.0`; chỉ frontend/nginx được expose. Thêm shared-secret giữa BE↔Engine | docker-compose.yml, Engine/main.py |
+| P0-2 | ⬜ | A07/A01 | Thêm cơ chế xác thực tenant thật thay vì UUID tự cấp | BE (tenant module) |
+| P0-3 | ❌ | A01 | ~~Gắn `TenantGuard` bằng `@UseGuards`~~ — **khuyến nghị này sai, xem 6.7** | — |
+| P0-4 | ✅ | LLM01/LLM04 | Cap độ dài cho mọi trường free-text ở cả BE DTO và Engine Pydantic model | BE DTOs, Engine/main.py |
+| P0-5 | ✅ | A03/LLM01 | `/memory/extract`, `/memory/reinforce` dùng DTO class có validation | BE/src/modules/memory |
 
 ### P1 — Ưu tiên cao, xử lý ngay sau P0
-| ID | Hạng mục | Việc cần làm | Thành phần | Effort |
+| ID | Trạng thái | Hạng mục | Việc cần làm | Thành phần |
 |---|---|---|---|---|
-| P1-1 | LLM01 | Tách prompt thành role `system`/`developer`/`user` thật ở tầng gọi API (dùng `system_instruction` của Gemini, role `system` của OpenAI-compatible), không nối chuỗi thành một message | Engine/core/llm/*, pipeline.py | M |
-| P1-2 | LLM05/LLM09 | Verdict `FLAGGED` phải chặn hoặc buộc regenerate, không tự động trả về người dùng; lỗi parse/hết ngân sách nên fail-safe về fallback thay vì `FLAGGED` mặc định | Engine/core/pipeline.py | S |
-| P1-3 | LLM04 | Áp dụng lại content-safety check (blocklist + reviewer) cho từng `memory.value` trước khi lưu/tái sử dụng | Engine/core/memory_extractor.py | S |
-| P1-4 | A05 | Thêm security headers (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy) vào nginx; thêm HSTS khi có TLS | FE/nginx.conf | S |
-| P1-5 | A02 | Thêm TLS termination cho stack chính (không chỉ 9router LB) | deploy/, docker-compose | M |
-| P1-6 | A05 | Giới hạn CORS ở BE bằng allowlist origin cụ thể thay vì `enableCors()` mặc định | BE/src/main.ts | S |
-| P1-7 | A02 | Bỏ giá trị mặc định `aibedtime123` cho `NINEROUTER_PASSWORD` — bắt buộc set qua env, fail-closed nếu thiếu | docker-compose.9router-ha.yml, scripts/bootstrap-9router.mjs | S |
-| P1-8 | A05 | Thêm `USER` non-root vào cả 3 Dockerfile | */Dockerfile | S |
+| P1-1 | ✅ | LLM01 | Tách prompt thành role `system`/`user` thật ở tầng gọi API | Engine/core/llm/*, pipeline.py |
+| P1-2 | ✅ | LLM05/LLM09 | `FLAGGED` chặn hoặc regenerate; lỗi parse/hết ngân sách fail-safe | Engine/core/pipeline.py |
+| P1-3 | ✅ | LLM04 | Content-safety check cho từng `memory.value` trước khi lưu | Engine/core/memory_extractor.py, BE memory-content.ts |
+| P1-4 | ✅ | A05 | Security headers (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy) | FE/nginx.conf |
+| P1-5 | ⬜ | A02 | TLS termination cho stack chính | deploy/, docker-compose |
+| P1-6 | ✅ | A05 | CORS allowlist qua `CORS_ORIGINS`, mặc định đóng hoàn toàn | BE/src/main.ts |
+| P1-7 | ✅ | A02 | Bỏ mặc định `aibedtime123`, fail-closed nếu thiếu | docker-compose.9router-ha.yml, scripts/bootstrap-9router.mjs |
+| P1-8 | ✅ | A05 | Non-root cả 3 image | */Dockerfile |
 
 ### P2 — Trung bình, nên đưa vào roadmap gần
-| ID | Hạng mục | Việc cần làm | Thành phần | Effort |
+| ID | Trạng thái | Hạng mục | Việc cần làm | Thành phần |
 |---|---|---|---|---|
-| P2-1 | LLM09 | Mở rộng/cải thiện content filter (thêm từ khóa tiếng Việt còn thiếu như "giết", cân nhắc semantic classifier thay vì substring match) | Engine/core/validator.py | M |
-| P2-2 | LLM02 | Xem xét giảm PII gửi ra provider free-tier, hoặc giới hạn chain provider dùng cho dữ liệu trẻ em chỉ với provider có cam kết xử lý dữ liệu rõ ràng | Engine/core/llm/router.py | M |
-| P2-3 | LLM10 | Thêm backoff/jitter cho retry loop khi gặp rate-limit provider | Engine/core/llm/openai_client.py, openrouter_client.py | S |
-| P2-4 | LLM03/A06 | Thêm hash-pinning (`pip-compile --generate-hashes`) cho Engine dependencies | Engine/requirements.txt | S |
-| P2-5 | A05 | Tắt hoặc gate `/docs`, `/redoc`, `/openapi.json` của FastAPI sau auth | Engine/main.py | S |
-| P2-6 | A02 | Mã hóa hoặc giảm thiểu PII trẻ em lưu trong `localStorage`; thêm cơ chế hết hạn/dọn dẹp | FE/src/App.tsx | M |
-| P2-7 | A05 | Thêm `mem_limit`/`cpus` cho các service trong compose | docker-compose*.yml | S |
-| P2-8 | A09 | Không log `tenant_id` như một giá trị công khai (coi log access = truy cập dữ liệu nhạy cảm), thêm audit trail cho hành vi bất thường | BE/src/common/interceptors/logging.interceptor.ts | S |
-| P2-9 | A06 | Thêm `npm audit`/`pip-audit` vào CI hoặc bật Dependabot | CI config (chưa có) | S |
+| P2-1 | ✅ | LLM09 | Mở rộng content filter (+"giết", tự hại, tình dục, chất gây nghiện, kinh dị), khớp theo word-boundary trên text đã NFKC | Engine/core/validator.py |
+| P2-2 | ⬜ | LLM02 | Giảm PII gửi ra provider free-tier | Engine/core/llm/router.py |
+| P2-3 | ⬜ | LLM10 | Backoff/jitter cho retry loop | Engine/core/llm/*.py |
+| P2-4 | ⬜ | LLM03/A06 | Hash-pinning cho Engine dependencies | Engine/requirements.txt |
+| P2-5 | ✅ | A05 | Tắt `/docs`, `/redoc`, `/openapi.json` trừ khi `ENGINE_DOCS` được bật | Engine/main.py |
+| P2-6 | ⬜ | A02 | Mã hóa/giảm thiểu PII trẻ em trong `localStorage` | FE/src/App.tsx |
+| P2-7 | ✅ | A05 | `mem_limit`/`cpus`, `no-new-privileges`, `read_only` cho Engine | docker-compose.yml |
+| P2-8 | ⬜ | A09 | Không log `tenant_id` plaintext; thêm audit trail | BE logging.interceptor.ts |
+| P2-9 | ⬜ | A06 | `npm audit`/`pip-audit` trong CI | CI config (chưa có) |
 
 ### P3 — Thấp / hardening
-| ID | Hạng mục | Việc cần làm | Thành phần | Effort |
+| ID | Trạng thái | Hạng mục | Việc cần làm | Thành phần |
 |---|---|---|---|---|
-| P3-1 | A05 | Thêm `server_tokens off;` trong nginx | FE/nginx.conf | S |
-| P3-2 | A04 | Thống nhất `confirm()` cho mọi hành động xóa (hiện xóa truyện không hỏi xác nhận trong khi xóa hồ sơ trẻ có hỏi) | FE/src/components/SavedStoriesModal.tsx | S |
-| P3-3 | A09 | Cân nhắc thêm error tracking phía client (đánh đổi với việc gửi thêm dữ liệu ra bên thứ 3 — cần review privacy trước khi bật) | FE | S |
+| P3-1 | ✅ | A05 | `server_tokens off;` | FE/nginx.conf |
+| P3-2 | ⬜ | A04 | Thống nhất `confirm()` cho mọi hành động xóa | FE/src/components/SavedStoriesModal.tsx |
+| P3-3 | ⬜ | A09 | Error tracking phía client | FE |
 
 ---
 
-## 6. Giới hạn của đánh giá
+## 6. Phát hiện mới (2026-08-10) — không có trong đánh giá gốc
+
+Đánh giá gốc kết luận prompt injection "không có lớp phòng thủ nào". Khi xây lớp phòng thủ đó, sáu vấn đề mới lộ ra — phần lớn là những cách vượt qua chính lớp phòng thủ vừa dựng.
+
+### 6.1 Vượt hàng rào bằng ký tự fullwidth — Critical, ĐÃ XỬ LÝ
+
+Data fence (`<<<UNTRUSTED_CHILD_DATA`) và bộ strip `[<>\`]` bảo vệ lẫn nhau: giá trị không thể chứa `<` nên không thể đóng hàng rào. Nhưng `＜＜＜` (U+FF1C) **không phải** `<<<` với bất kỳ regex nào, trong khi **là** `<<<` với mọi tokenizer và mọi model. Tương tự, `ｉｇｎｏｒｅ ａｌｌ ｒｕｌｅｓ` đi thẳng qua blocklist viết bằng ASCII.
+
+Hệ quả: mọi biện pháp LLM01 vừa thêm ở commit trước đều có thể bị vượt bằng cách gõ lại payload ở dạng fullwidth.
+
+**Xử lý:**
+- `Engine/core/prompts/sanitize.py` — NFKC chạy **đầu tiên**, gộp mọi dạng tương thích về ký tự gốc, để các bước strip phía sau nhìn thấy ký tự mà model thực sự đọc.
+- `find_fullwidth()` dùng thuộc tính `East_Asian_Width` của chính Unicode (`F` + `H`) thay vì danh sách range chép tay — bắt cả U+3000 (khoảng trắng fullwidth sống sót qua `\s`).
+- Phát hiện chạy trên text **thô, trước NFKC**: sau khi chuẩn hoá thì `Ａ` đã là `A` và không còn gì để phản đối. Câu hỏi không phải "ký tự này là gì" mà "tại sao nó được viết như vậy".
+- `BE/src/common/validation/child-text.ts` — bản sao ở tầng BE, từ chối sớm trước khi tốn LLM call.
+- `Engine/core/validator.py` — `find_blocklist_word()` NFKC trước khi khớp, nên `ｋｉｌｌ` khớp `kill`.
+
+### 6.2 Không giới hạn ngôn ngữ đầu vào — High, ĐÃ XỬ LÝ
+
+Không có ràng buộc nào về script. Một chỉ thị viết bằng tiếng Trung, Nga, Hàn, Ả Rập đi thẳng vào prompt — và không prompt template nào, không blocklist nào, không reviewer nào trong hệ thống này được viết để đọc chúng. Đây không phải "ngôn ngữ khác mà ta cũng chấp nhận", mà là **nội dung không tầng nào có thể tuyên bố đã kiểm tra**.
+
+**Xử lý:** allowlist ký tự Việt + Anh, dùng ở cả 3 tầng (`sanitize.py`, `child-text.ts`, `FE/src/utils/childText.ts`). Tiếng Việt cần **ba** khối chữ cái chứ không phải một:
+
+| Khối | Range | Dùng cho |
+|---|---|---|
+| ASCII | `0041–005A`, `0061–007A` | chữ cái nền |
+| Latin-1 Sup + Extended-A/B | `00C0–024F` | â ă ê ô ơ ư đ |
+| Latin Extended Additional | `1E00–1EFF` | nguyên âm dựng sẵn có cả dấu phụ lẫn thanh: ế ộ ừ |
+| Combining marks | `0300–036F` | dạng tách rời — NFKC là chuẩn hoá *tương thích*, không đảm bảo composition |
+
+Tập dấu câu cố ý ngắn: `` ` ``, `<`, `>`, `{}`, `[]`, `|`, `\`, `*`, `#`, `~` bị loại vì đó là những ký tự dùng để *vẽ cấu trúc* (code fence, JSON, markdown heading) quanh một đoạn text lẽ ra chỉ là cái tên.
+
+Lưu ý: khoá này là khoá **đầu vào**. Khoá **đầu ra** (ngôn ngữ của truyện) hẹp hơn và là chuyện khác — xem 6.9.
+
+### 6.3 Không có cổng kiểm duyệt độ tuổi ở đầu vào — High, ĐÃ XỬ LÝ
+
+Đây là phát hiện quan trọng nhất về mặt an toàn trẻ em.
+
+`age` bị chặn trong khoảng 3–6 ở cả BE và Engine, nhưng **không có gì chặn nội dung được yêu cầu ở độ tuổi đó**. `theme` và `goal` là free-text ghép thẳng vào prompt. Với `theme = "tra tấn"`, thứ duy nhất đứng giữa yêu cầu đó và đứa trẻ là reviewer LLM — chạy **sau khi truyện đã được viết xong**, ở cuối pipeline, và chỉ có tác dụng nếu nó tình cờ nhận ra.
+
+Nói cách khác: hệ thống có kiểm duyệt **đầu ra** nhưng không có kiểm duyệt **đầu vào**, và lớp đầu ra thì tốn 10 LLM call mới tới nơi.
+
+**Xử lý:** `Engine/core/input_guard.py` (mới) + `@IsChildSafeText({ content: true })` ở BE, áp cho `theme`, `goal`, `favorite_character`, `interests`, `preferred_characters`, `bedtime_goal`, `memory.value`. Từ chối trước LLM call đầu tiên.
+
+Phân tách có chủ ý giữa hai mức:
+
+| Mức | Kiểm tra | Áp cho |
+|---|---|---|
+| Structural | fullwidth, script, ký tự điều khiển/ẩn, injection marker | mọi trường, kể cả tên |
+| Content | thêm blocklist nội dung | chỉ các trường quyết định truyện *nói về cái gì* |
+
+Tên trẻ **không** chạy blocklist nội dung: `dao` nằm trong blocklist và cũng là tên riêng tiếng Việt. Một bộ lọc từ chối bé tên Dao là bộ lọc không ai ship được.
+
+### 6.4 `age` bị trôi giữa các lần tạo truyện — Medium, ĐÃ XỬ LÝ
+
+`ChildService.getOrCreate` tra hồ sơ **chỉ theo tên** rồi trả về bản ghi cũ, âm thầm vứt bỏ `age` phụ huynh vừa nhập lại trên form. `StoryService` gửi `child.age` (giá trị cũ) sang Engine, và Engine chọn developer prompt cùng bộ quy tắc an toàn theo con số đó.
+
+Hệ quả: bé 3 tuổi có hồ sơ tạo từ năm ngoái tiếp tục nhận truyện viết theo bộ quy tắc 5–6 tuổi, và form thì không báo gì. Không phải lỗ hổng bị khai thác từ xa, nhưng là sai lệch an toàn theo độ tuổi — đúng thứ sản phẩm này tồn tại để làm đúng.
+
+Test cũ (`child.service.spec.ts`) đang **khẳng định chính hành vi sai này** (`expect(p1.age).toBe(4)`). Đã viết lại.
+
+### 6.5 `age` trở thành đường dẫn file — Medium, ĐÃ XỬ LÝ
+
+`PromptRegistry.load_developer()` nội suy `age` vào **tên file**: `f"{age}.txt"`. Request schema có chặn, nhưng đây là chỗ duy nhất một giá trị lọt qua ràng buộc sẽ thôi là dữ liệu và trở thành đường dẫn.
+
+Ngoài ra, nhánh fallback `return self.load_developer(3)` sẽ **đệ quy vô hạn** nếu `3-4.txt` biến mất.
+
+**Xử lý:** `_clamp_age()` ép kiểu int và kẹp vào 3..6 ngay tại chỗ có rủi ro; fallback thay bằng `FileNotFoundError` rõ ràng. Kẹp thay vì raise vì đây là tuyến hai — kể truyện theo quy tắc 3–4 là cách sai an toàn. `assemble()` cũng ghi lại `data["age"]` bằng giá trị đã kẹp, để tuổi mà prompt **ghi** và tuổi mà prompt được **chọn theo** luôn là một số.
+
+### 6.6 DTO hồ sơ trẻ không có bất kỳ giới hạn nào — High, ĐÃ XỬ LÝ
+
+`CreateChildProfileDto`/`UpdateChildProfileDto` không có `@MaxLength` và không có kiểm tra nội dung nào — trong khi `StoryService.create` **đọc ngược** `preferredCharacters` và `bedtimeGoal` từ hồ sơ và gửi sang Engine mỗi khi form để trống các trường đó.
+
+Đây là đường thứ hai để cấy text vào prompt, không đi qua endpoint tạo truyện, và nó hoàn toàn không được kiểm tra. P0-4 của đánh giá gốc chỉ liệt kê DTO của story nên đã bỏ sót.
+
+### 6.7 Đính chính: khuyến nghị P0-3 không đúng
+
+Đánh giá gốc đề xuất gắn `TenantGuard` bằng `@UseGuards` cho mọi controller. Kiểm tra lại: `TenantMiddleware` **luôn** set `req.tenantId` — nếu header vắng, nó tạo tenant mới rồi gán. Do đó điều kiện `if (!request.tenantId)` trong guard không bao giờ đúng được.
+
+`TenantGuard` không phải "code chết vì chưa gắn", mà là **code chết về mặt cấu trúc**: nó khẳng định một thuộc tính mà middleware đã đảm bảo. Gắn nó vào không thay đổi hành vi nào, chỉ tạo cảm giác đã xử lý A01.
+
+Cách sửa thật vẫn là **P0-2** — chứng minh quyền sở hữu tenant. Guard chỉ có ý nghĩa sau khi middleware ngừng tự phát hành danh tính.
+
+### 6.8 Bộ test đang hỏng — không phải lỗ hổng, nhưng làm mất lưới an toàn
+
+Khi bắt đầu phiên này, **40/166 test của Engine đang fail**. Nguyên nhân: commit trước tách `system`/`user` và đổi chữ ký `router.complete(...)`, nhưng không cập nhật test double — chúng vẫn khai báo `complete(self, prompt, stage="", accept=None)` và ném `TypeError` khi nhận `system=`.
+
+Điều này nghiêm trọng hơn con số gợi ý: các test hỏng chính là `test_safety_gate.py`, tức lưới an toàn của **chính những biện pháp LLM01/LLM05 vừa thêm**. Trong bốn ngày, các control đó không có gì kiểm chứng.
+
+**Xử lý:** cập nhật toàn bộ test double; viết lại `test_safety_gate.py` để khẳng định đúng thuộc tính bảo mật mới — không chỉ "quy tắc có tới model" mà **"quy tắc đi bằng kênh system"** và **"text của phụ huynh không bao giờ đi bằng kênh system"**. Bản cũ vẫn pass kể cả khi pipeline quay lại nối chuỗi.
+
+Cũng sửa một lỗi cô lập môi trường: `main.py` gọi `load_dotenv()` lúc import, nên `Engine/.env` thật của lập trình viên rò vào `os.environ` cả session và các test key-rotation mô tả máy của người chạy thay vì mô tả client.
+
+**Kết quả:** Engine 228 pass; BE 218 pass; FE 37 pass; `tsc --noEmit` sạch ở cả BE và FE.
+
+Còn 2 test Engine fail vì lý do môi trường: máy local cài `httpx 0.28.0` trong khi `requirements.txt` pin `0.27.2`, và `openai==1.55.0` truyền tham số `proxies=` mà httpx 0.28 đã bỏ. Docker image cài đúng pin nên không bị. Khắc phục local: `pip install -r requirements.txt`.
+
+---
+
+### 6.9 Kiểm tra "thuần Việt" tồn tại nhưng không có quyền chặn — Medium, ĐÃ XỬ LÝ
+
+Quyết định phạm vi: **truyện chỉ tiếng Việt, hỗ trợ tiếng Anh dời sang MVP 2.1.**
+
+Không thể loại tiếng Anh ở tầng ký tự. Tiếng Việt viết bằng chính bảng chữ cái A–Z, nên allowlist ký tự (6.2) buộc phải nhận chữ Latin — bỏ `a-z` là chặn luôn tiếng Việt. Hai câu hỏi khác nhau và chỉ câu thứ hai loại được tiếng Anh:
+
+| Khoá | Câu hỏi | Phạm vi |
+|---|---|---|
+| Đầu vào (`IsChildSafeText`) | Phụ huynh được gõ ký tự nào? | Latin + dấu tiếng Việt — không thể hẹp hơn |
+| Đầu ra (`language`, purity check) | Truyện trả về bằng ngôn ngữ nào? | **Chỉ tiếng Việt** |
+
+Ở tầng đầu ra đã có sẵn `check_vietnamese_purity()`, chạy trên **mọi** truyện — nhưng `_validate_writer_full` chỉ `logger.warning(...)` rồi `return schema_result`. Tức là bộ kiểm tra chạy đủ, tốn đủ, và **không thay đổi kết quả nào**: câu tiếng Anh vẫn tới tay trẻ, chỉ để lại một dòng log không ai đọc.
+
+Ngoài ra nó chạy trên `str(data)` — tức đọc cả phần khung JSON (`title`, `content`, `type`, `order`, và nhãn section như `opening`, `resolution`). Đó là những từ tiếng Anh mà chính hệ thống bắt model viết ra, nên bộ kiểm tra đang kiểm tra schema của chính mình. Nó chưa nổ chỉ vì tình cờ không có key nào trùng danh sách — thêm một section type tên `the-end` là mọi truyện fail.
+
+**Xử lý:**
+- `OutputValidator.story_text()` (mới) — chỉ trích phần lời truyện (`title`, `text`, `prompt`, `moral`), bỏ toàn bộ khung JSON.
+- `_validate_writer_full` **trả về invalid** thay vì log, nên `_call_retry` sinh lại truyện. Đây là lý do việc chặn là khả thi: chi phí một lần regenerate, không phải một fallback.
+- `WRITER_RETRY_HINT` nêu cả hai quy tắc writer có thể vi phạm. Hint là **text cố định do operator viết**, không nhồi `result.errors` ngược vào — chuỗi lỗi có chứa dữ liệu do model sinh (`word_count`, section `type`), và kênh system là chỗ duy nhất pipeline này cố giữ sạch khỏi text của model.
+- `ENGLISH_LEAK_BLOCKLIST` mở rộng, ưu tiên **hư từ** (`the`, `and`, `with`, `was`): model trôi sang tiếng Anh thì trôi cả mệnh đề, còn một danh từ mượn lẻ (`robot`, `pizza`) là tiếng Việt bình thường nên cố ý không đưa vào.
+- `language` ở Engine siết từ `vi|en` xuống `^vi$`, khớp với `@IsIn(['vi'])` của BE.
+
+Cơ chế lọc dựa vào một đặc điểm của chữ viết tiếng Việt: pattern `\b[a-zA-Z]{3,}\b` chỉ khớp cụm Latin **không dấu**, nên mọi từ tiếng Việt có dấu thanh hoặc dấu mũ không bao giờ được đem đi so sánh. Chỉ các từ không dấu (`con`, `cho`, `trong`, `nha`) lọt tới danh sách — và không từ nào trong số đó là từ tiếng Anh. Đó cũng là lý do danh sách phải giữ ngắn.
+
+Cờ `language` của reviewer vẫn **không chặn**, và đó không phải lỗ hổng: tiếng Anh đã bị bắt tất định ở tầng writer trước đó, nên tới reviewer thì truyện đã qua kiểm tra rồi. Đổi một truyện đã viết xong lấy fallback "máy kể chuyện hơi mệt" vì một từ gây tranh cãi là món hời tệ cho đứa trẻ đang chờ nghe.
+
+---
+
+## 7. Ghi chú về sự đánh đổi
+
+**Blocklist có false positive.** Khớp theo word-boundary đã loại phần lớn (`máu` không còn khớp trong `màu`), nhưng `dao` vẫn khớp trong `dao động`. Với chủ đề truyện cho trẻ 3–6 tuổi thì xác suất gặp gần bằng không, và hướng sai là hướng an toàn. Ghi lại ở đây để người sau không tưởng là bug.
+
+**Truyện chỉ tiếng Việt; tiếng Anh dời sang MVP 2.1.** Xem 6.9 — quyết định này kéo theo một phân biệt dễ nhầm giữa khoá *đầu vào* và khoá *đầu ra*.
+
+**`memories` không bị gate, chỉ bị sanitize.** Chúng không do người gọi request gõ ra — chúng là giá trị hệ thống đã lưu từ trước, có thể dưới phiên bản Engine cũ với bộ lọc lỏng hơn. Làm hỏng một câu chuyện trước giờ ngủ vì một memory nhiều tháng tuổi có emoji là phạt nhầm người. Bước strip đã đủ để nội suy an toàn, và `memory_extractor` chạy blocklist ngay tại điểm ghi.
+
+**`note` của feedback không bị khoá nội dung.** Nó do phụ huynh viết cho người đọc, không bao giờ tới prompt. Blocklist ở đây sẽ từ chối đúng cái báo cáo đáng đọc nhất — "truyện có đoạn hơi bạo lực" là lời phàn nàn, không phải vi phạm.
+
+---
+
+## 8. Giới hạn của đánh giá
 
 - Đây là **static code review** dựa trên đọc mã nguồn, không phải kiểm thử xâm nhập (pentest) hay fuzzing thực tế trên hệ thống đang chạy.
 - Không truy cập được cơ sở dữ liệu CVE trực tuyến để đối chiếu phiên bản dependency cụ thể — khuyến nghị chạy `npm audit`, `pip-audit`, hoặc Snyk/Dependabot như một bước riêng (đã đưa vào backlog P2-9).
