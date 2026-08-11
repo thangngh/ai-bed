@@ -52,6 +52,15 @@ export default function App() {
   const [isChildSelectorOpen, setIsChildSelectorOpen] = useState(false);
   const [profileEditTarget, setProfileEditTarget] = useState<ChildProfile | null>(null);
 
+  // Header's screen buttons are generic navigation with no idea an editor
+  // might be open behind them -- route them through here so leaving any
+  // screen also drops a stale profile edit target, not just the paths that
+  // already knew to clear it (ProfileManager's own back button, etc.).
+  const handleHeaderNavigate = (screen: AppScreen) => {
+    setProfileEditTarget(null);
+    setCurrentScreen(screen);
+  };
+
   // Sync activeChild to localStorage
   useEffect(() => {
     if (activeChild) localStorage.setItem('bsc_active_child', JSON.stringify(activeChild));
@@ -265,7 +274,7 @@ export default function App() {
       {/* Header */}
       <Header
         currentScreen={currentScreen}
-        setScreen={setCurrentScreen}
+        setScreen={handleHeaderNavigate}
         isNightMode={isNightMode}
         setIsNightMode={setIsNightMode}
         savedStoriesCount={savedStories.length}
@@ -356,6 +365,7 @@ export default function App() {
             onBack={() => { setProfileEditTarget(null); setCurrentScreen('home'); }}
             isNightMode={isNightMode}
             initialEditChild={profileEditTarget}
+            onEditorClose={() => setProfileEditTarget(null)}
           />
         )}
         {currentScreen === 'analytics' && (

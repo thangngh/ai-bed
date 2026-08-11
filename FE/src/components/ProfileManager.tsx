@@ -14,10 +14,17 @@ interface ProfileManagerProps {
   isNightMode: boolean;
   /** Open straight into the editor for this child. App remounts on change. */
   initialEditChild?: ChildProfile | null;
+  /**
+   * Fired when the editor closes (save or cancel), so App can drop the edit
+   * target it handed us via `initialEditChild`. Without this, App keeps
+   * pointing at a child whose editor is long gone, and the next unrelated
+   * visit to this screen reopens that editor instead of the list.
+   */
+  onEditorClose?: () => void;
 }
 
 export const ProfileManager: React.FC<ProfileManagerProps> = ({
-  children, activeChild, onSelectChild, onUpdate, onBack, isNightMode, initialEditChild,
+  children, activeChild, onSelectChild, onUpdate, onBack, isNightMode, initialEditChild, onEditorClose,
 }) => {
   const [editingChild, setEditingChild] = useState<ChildProfile | null | 'new'>(initialEditChild ?? null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -35,6 +42,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
       onUpdate(children.map(c => c.childId === saved.childId ? { ...c, ...saved } : c));
     }
     setEditingChild(null);
+    onEditorClose?.();
   };
 
   const handleDelete = async (child: ChildProfile) => {
@@ -57,7 +65,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
       <ProfileEditor
         editChild={editingChild === 'new' ? null : editingChild}
         onSave={handleSave}
-        onCancel={() => setEditingChild(null)}
+        onCancel={() => { setEditingChild(null); onEditorClose?.(); }}
         isNightMode={isNightMode}
       />
     );
