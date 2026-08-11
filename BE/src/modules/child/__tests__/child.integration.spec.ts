@@ -349,4 +349,41 @@ describe('Child Profile Module (integration)', () => {
       .send({ age: 5 })
       .expect(404);
   });
+
+  it('PUT /child-profile/:childId renames a child', async () => {
+    const tenant = freshTenant();
+    const created = await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'Cu', age: 4 })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .put(`/child-profile/${created.body.child_id}`)
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'Moi' })
+      .expect(200);
+
+    expect(res.body.child_name).toBe('Moi');
+  });
+
+  it('PUT /child-profile/:childId returns 409 when the new name is taken', async () => {
+    const tenant = freshTenant();
+    await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'DaCo', age: 4 })
+      .expect(201);
+    const mover = await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'SeDoi', age: 4 })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .put(`/child-profile/${mover.body.child_id}`)
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'DaCo' })
+      .expect(409);
+  });
 });

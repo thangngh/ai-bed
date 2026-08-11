@@ -162,4 +162,49 @@ describe('ChildService', () => {
 
     expect(other.childId).toBeDefined();
   });
+
+  it('update() renames a child', async () => {
+    const p = await service.create('tenant-5', { child_name: 'Sai', age: 4 } as any);
+
+    const renamed = await service.update(p.childId, 'tenant-5', { child_name: 'Đúng' } as any);
+
+    expect(renamed.childName).toBe('Đúng');
+    expect(await service.findByName('tenant-5', 'Sai')).toBeNull();
+  });
+
+  it('update() rejects a rename onto another active child', async () => {
+    await service.create('tenant-5', { child_name: 'Taken', age: 4 } as any);
+    const other = await service.create('tenant-5', { child_name: 'Mover', age: 4 } as any);
+
+    await expect(service.update(other.childId, 'tenant-5', { child_name: 'Taken' } as any))
+      .rejects.toThrow(ConflictException);
+  });
+
+  it('update() accepts a no-op rename to the child own name', async () => {
+    const p = await service.create('tenant-5', { child_name: 'Same', age: 4 } as any);
+
+    const saved = await service.update(p.childId, 'tenant-5', { child_name: 'Same', age: 5 } as any);
+
+    expect(saved.childName).toBe('Same');
+    expect(saved.age).toBe(5);
+  });
+
+  it('update() leaves fields absent from the DTO alone', async () => {
+    const p = await service.create('tenant-5', {
+      child_name: 'Keep',
+      age: 4,
+      interests: 'tàu hỏa',
+      preferred_characters: 'Gấu Pooh',
+      bedtime_goal: 'Dũng cảm',
+      gender: 'boy',
+    } as any);
+
+    const saved = await service.update(p.childId, 'tenant-5', { age: 6 } as any);
+
+    expect(saved.age).toBe(6);
+    expect(saved.interests).toBe('tàu hỏa');
+    expect(saved.preferredCharacters).toBe('Gấu Pooh');
+    expect(saved.bedtimeGoal).toBe('Dũng cảm');
+    expect(saved.gender).toBe('boy');
+  });
 });

@@ -100,6 +100,17 @@ export class ChildService {
   async update(childId: string, tenantId: string, dto: UpdateChildProfileDto): Promise<ChildProfile> {
     const profile = await this.repo.findOne({ where: { childId, tenantId, isActive: 1 } });
     if (!profile) throw new NotFoundException('Child profile not found');
+    if (dto.child_name !== undefined && dto.child_name !== profile.childName) {
+      const clash = await this.repo.findOne({
+        where: { tenantId, childName: dto.child_name, isActive: 1 },
+      });
+      // Renaming to the child's own name is a no-op, not a conflict; only
+      // another live row blocks it.
+      if (clash && clash.childId !== profile.childId) {
+        throw new ConflictException('Child profile with this name already exists');
+      }
+      profile.childName = dto.child_name;
+    }
     if (dto.age !== undefined) profile.age = dto.age;
     if (dto.interests !== undefined) profile.interests = dto.interests;
     if (dto.preferred_characters !== undefined) profile.preferredCharacters = dto.preferred_characters;

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsNotEmpty, IsInt, Min, Max, MaxLength } from 'class-validator';
 import { IsChildSafeText } from '../../../common/validation/child-text';
 
 /**
@@ -7,12 +7,26 @@ import { IsChildSafeText } from '../../../common/validation/child-text';
  * update is not checked. See that file for why a stored profile reaches a
  * prompt at all.
  */
+const NAME_MAX = 40;
 const INTERESTS_MAX = 200;
 const CHARACTER_MAX = 60;
 const GOAL_MAX = 200;
 const GENDER_MAX = 20;
 
 export class UpdateChildProfileDto {
+  /**
+   * Renaming is allowed because a mistyped name is common and forcing a
+   * delete-and-recreate would strand the child's stories on the old row.
+   * Structural checks only, exactly as on create -- the content blocklist
+   * contains `dao`, and a child can be called Dao.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(NAME_MAX)
+  @IsChildSafeText()
+  child_name?: string;
+
   @IsOptional()
   @IsInt()
   @Min(3)
