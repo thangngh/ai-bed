@@ -30,8 +30,12 @@ export class ChildService {
    * DTO bounded to 3..6, and the Engine bounds it again.
    */
   async getOrCreate(tenantId: string, dto: CreateChildProfileDto): Promise<ChildProfile> {
+    // Deleted profiles must not match: a name that comes back is a new child
+    // as far as stories, memories and analytics are concerned. Without this
+    // filter the dead row was returned, the API reported success, and the
+    // child never appeared in `findByTenant` again.
     const existing = await this.repo.findOne({
-      where: { tenantId, childName: dto.child_name },
+      where: { tenantId, childName: dto.child_name, isActive: 1 },
     });
     if (existing) {
       if (existing.age !== dto.age) {
@@ -54,7 +58,9 @@ export class ChildService {
   }
 
   async findByTenant(tenantId: string): Promise<ChildProfile[]> {
-    return this.repo.find({ where: { tenantId, isActive: 1 } });
+    // Without an explicit order the list is whatever SQLite hands back, so the
+    // children could swap places between two loads of the same screen.
+    return this.repo.find({ where: { tenantId, isActive: 1 }, order: { createdAt: 'ASC' } });
   }
 
   async findByName(tenantId: string, childName: string): Promise<ChildProfile | null> {
@@ -66,7 +72,7 @@ export class ChildService {
   }
 
   async update(childId: string, tenantId: string, dto: UpdateChildProfileDto): Promise<ChildProfile> {
-    const profile = await this.repo.findOne({ where: { childId, tenantId } });
+    const profile = await this.repo.findOne({ where: { childId, tenantId, isActive: 1 } });
     if (!profile) throw new NotFoundException('Child profile not found');
     if (dto.age !== undefined) profile.age = dto.age;
     if (dto.interests !== undefined) profile.interests = dto.interests;
@@ -77,7 +83,7 @@ export class ChildService {
   }
 
   async delete(childId: string, tenantId: string): Promise<void> {
-    const profile = await this.repo.findOne({ where: { childId, tenantId } });
+    const profile = await this.repo.findOne({ where: { childId, tenantId, isActive: 1 } });
     if (!profile) throw new NotFoundException('Child profile not found');
     profile.isActive = 0;
     await this.repo.save(profile);

@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -79,5 +80,44 @@ describe('ChildService', () => {
     await service.delete(p.childId, 'tenant-1');
     const activeProfiles = await service.findByTenant('tenant-1');
     expect(activeProfiles.find(c => c.childId === p.childId)).toBeUndefined();
+  });
+
+  it('creates a new row instead of resurrecting a soft-deleted child', async () => {
+    // A deleted child that comes back must not inherit the old row: stories,
+    // memories and analytics are all keyed by childId, and the parent who
+    // pressed "delete" does not expect them to reappear.
+    const first = await service.getOrCreate('tenant-2', { child_name: 'Reborn', age: 4 } as any);
+    await service.delete(first.childId, 'tenant-2');
+
+    const second = await service.getOrCreate('tenant-2', { child_name: 'Reborn', age: 4 } as any);
+
+    expect(second.childId).not.toBe(first.childId);
+    expect(second.isActive).toBe(1);
+    expect((await service.findById(first.childId))!.isActive).toBe(0);
+  });
+
+  it('refuses to update a soft-deleted child', async () => {
+    const p = await service.getOrCreate('tenant-2', { child_name: 'GoneUpdate', age: 4 } as any);
+    await service.delete(p.childId, 'tenant-2');
+
+    await expect(service.update(p.childId, 'tenant-2', { age: 5 } as any)).rejects.toThrow(NotFoundException);
+  });
+
+  it('refuses to delete a soft-deleted child twice', async () => {
+    const p = await service.getOrCreate('tenant-2', { child_name: 'GoneDelete', age: 4 } as any);
+    await service.delete(p.childId, 'tenant-2');
+
+    await expect(service.delete(p.childId, 'tenant-2')).rejects.toThrow(NotFoundException);
+  });
+
+  it('returns children in creation order', async () => {
+    const t = 'tenant-order';
+    const a = await service.getOrCreate(t, { child_name: 'Alpha', age: 4 } as any);
+    const b = await service.getOrCreate(t, { child_name: 'Beta', age: 5 } as any);
+    const c = await service.getOrCreate(t, { child_name: 'Gamma', age: 6 } as any);
+
+    const list = await service.findByTenant(t);
+
+    expect(list.map(p => p.childId)).toEqual([a.childId, b.childId, c.childId]);
   });
 });
