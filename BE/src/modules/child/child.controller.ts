@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Put, Delete, Param, Body, Query, Req, HttpCode } from '@nestjs/common';
 import { Request } from 'express';
 import { ChildService } from './child.service';
+import { ChildProfile } from './entities/child-profile.entity';
 import { CreateChildProfileDto } from './dto/child-profile.dto';
 import { UpdateChildProfileDto } from './dto/update-child-profile.dto';
 
@@ -8,23 +9,42 @@ import { UpdateChildProfileDto } from './dto/update-child-profile.dto';
 export class ChildController {
   constructor(private readonly childService: ChildService) {}
 
+  /**
+   * One shape for every response.
+   *
+   * Each handler used to build its own object and all of them stopped at
+   * name/age, so the SPA's editor could not prefill the rest -- it sent blanks
+   * back and wiped the fields the Engine writes stories from. Keeping this in
+   * one place is what stops the four responses drifting apart again.
+   */
+  private toResponse(p: ChildProfile) {
+    return {
+      child_id: p.childId,
+      child_name: p.childName,
+      age: p.age,
+      gender: p.gender ?? null,
+      interests: p.interests ?? null,
+      preferred_characters: p.preferredCharacters ?? null,
+      bedtime_goal: p.bedtimeGoal ?? null,
+    };
+  }
+
   @Post()
   async create(@Body() dto: CreateChildProfileDto, @Req() req: Request) {
     const tenantId = (req as any).tenantId;
-    const profile = await this.childService.getOrCreate(tenantId, dto);
-    return { child_id: profile.childId, child_name: profile.childName, age: profile.age };
+    return this.toResponse(await this.childService.create(tenantId, dto));
   }
 
   @Get()
   async get(@Query('child_name') childName: string, @Req() req: Request) {
     const tenantId = (req as any).tenantId;
     if (childName) {
-      const profiles = await this.childService.findByTenant(tenantId);
-      const found = profiles.find(p => p.childName === childName);
-      return found ? { child_id: found.childId, child_name: found.childName, age: found.age } : { child_id: null };
+      const found = await this.childService.findByName(tenantId, childName);
+      // The miss keeps its bare shape: the SPA tests `data.child_id` for null.
+      return found ? this.toResponse(found) : { child_id: null };
     }
     const profiles = await this.childService.findByTenant(tenantId);
-    return { children: profiles.map(p => ({ child_id: p.childId, child_name: p.childName, age: p.age })) };
+    return { children: profiles.map(p => this.toResponse(p)) };
   }
 
   @Put(':childId')
@@ -34,8 +54,7 @@ export class ChildController {
     @Req() req: Request,
   ) {
     const tenantId = (req as any).tenantId;
-    const profile = await this.childService.update(childId, tenantId, dto);
-    return { child_id: profile.childId, child_name: profile.childName, age: profile.age };
+    return this.toResponse(await this.childService.update(childId, tenantId, dto));
   }
 
   @Delete(':childId')

@@ -90,21 +90,19 @@ describe('Child Profile Module (integration)', () => {
     expect(saved?.gender).toBe('boy');
   });
 
-  it('POST /child-profile duplicate name returns existing child (same child_id)', async () => {
+  it('POST /child-profile duplicate name returns 409', async () => {
     const tenant = freshTenant();
-    const first = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post('/child-profile')
       .set('X-Tenant-Id', tenant)
       .send({ child_name: 'Chi', age: 4 })
       .expect(201);
 
-    const second = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post('/child-profile')
       .set('X-Tenant-Id', tenant)
       .send({ child_name: 'Chi', age: 5 })
-      .expect(201);
-
-    expect(second.body.child_id).toBe(first.body.child_id);
+      .expect(409);
   });
 
   it('GET /child-profile lists all children for the tenant', async () => {
@@ -245,5 +243,110 @@ describe('Child Profile Module (integration)', () => {
       .send({ child_name: 'An', age: 4 })
       .expect(400);
     expect(res.body.error.code).toBe('INVALID_TENANT');
+  });
+
+  it('POST then GET returns every profile field', async () => {
+    const tenant = freshTenant();
+    await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({
+        child_name: 'Đủ',
+        age: 5,
+        gender: 'girl',
+        interests: 'khủng long',
+        preferred_characters: 'Thỏ Bông',
+        bedtime_goal: 'Chia sẻ',
+      })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .get('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .query({ child_name: 'Đủ' })
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      child_name: 'Đủ',
+      age: 5,
+      gender: 'girl',
+      interests: 'khủng long',
+      preferred_characters: 'Thỏ Bông',
+      bedtime_goal: 'Chia sẻ',
+    });
+    expect(res.body.child_id).toBeDefined();
+  });
+
+  it('PUT with only age leaves the other profile fields untouched', async () => {
+    // The bug this guards: GET used to omit these fields, so the editor
+    // prefilled them empty and sent the blanks back. StoryService reads
+    // preferredCharacters and bedtimeGoal to build the prompt, so editing an
+    // age used to silently change what every later story was written from.
+    const tenant = freshTenant();
+    const created = await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({
+        child_name: 'GiuNguyen',
+        age: 4,
+        interests: 'tàu hỏa',
+        preferred_characters: 'Gấu Pooh',
+        bedtime_goal: 'Dũng cảm',
+      })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .put(`/child-profile/${created.body.child_id}`)
+      .set('X-Tenant-Id', tenant)
+      .send({ age: 6 })
+      .expect(200);
+
+    expect(res.body.age).toBe(6);
+    expect(res.body.interests).toBe('tàu hỏa');
+    expect(res.body.preferred_characters).toBe('Gấu Pooh');
+    expect(res.body.bedtime_goal).toBe('Dũng cảm');
+
+    const saved = await core.getRepository(ChildProfile).findOneBy({ childId: created.body.child_id });
+    expect(saved?.interests).toBe('tàu hỏa');
+    expect(saved?.preferredCharacters).toBe('Gấu Pooh');
+    expect(saved?.bedtimeGoal).toBe('Dũng cảm');
+  });
+
+  it('GET list returns every profile field', async () => {
+    const tenant = freshTenant();
+    await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'Danh', age: 3, interests: 'công chúa' })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .get('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .expect(200);
+
+    const found = res.body.children.find((c: any) => c.child_name === 'Danh');
+    expect(found.interests).toBe('công chúa');
+    expect(found.bedtime_goal).toBeNull();
+  });
+
+  it('PUT /child-profile/:childId returns 404 for a deleted child', async () => {
+    const tenant = freshTenant();
+    const created = await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'DaXoa', age: 4 })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .delete(`/child-profile/${created.body.child_id}`)
+      .set('X-Tenant-Id', tenant)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .put(`/child-profile/${created.body.child_id}`)
+      .set('X-Tenant-Id', tenant)
+      .send({ age: 5 })
+      .expect(404);
   });
 });
