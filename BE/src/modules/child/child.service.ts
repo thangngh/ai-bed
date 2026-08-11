@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -12,6 +12,32 @@ export class ChildService {
 
   constructor(@InjectDataSource('core') private dataSource: DataSource) {
     this.repo = this.dataSource.getRepository(ChildProfile);
+  }
+
+  /**
+   * A profile the parent asked for explicitly.
+   *
+   * Unlike `getOrCreate`, a name that is already taken is an error rather than
+   * a silent hand-back of the existing row. `getOrCreate` exists to keep the
+   * story endpoint working for callers that only know a name; this one backs
+   * the profile screen, where "add" must not quietly edit someone else.
+   */
+  async create(tenantId: string, dto: CreateChildProfileDto): Promise<ChildProfile> {
+    const clash = await this.repo.findOne({
+      where: { tenantId, childName: dto.child_name, isActive: 1 },
+    });
+    if (clash) throw new ConflictException('Child profile with this name already exists');
+
+    const profile = new ChildProfile();
+    profile.childId = uuidv4();
+    profile.tenantId = tenantId;
+    profile.childName = dto.child_name;
+    profile.age = dto.age;
+    profile.interests = dto.interests || null;
+    profile.preferredCharacters = dto.preferred_characters || null;
+    profile.bedtimeGoal = dto.bedtime_goal || null;
+    profile.gender = dto.gender || null;
+    return this.repo.save(profile);
   }
 
   /**

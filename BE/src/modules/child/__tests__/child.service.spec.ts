@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -119,5 +119,47 @@ describe('ChildService', () => {
     const list = await service.findByTenant(t);
 
     expect(list.map(p => p.childId)).toEqual([a.childId, b.childId, c.childId]);
+  });
+
+  it('create() stores every field from the DTO', async () => {
+    const p = await service.create('tenant-3', {
+      child_name: 'Full',
+      age: 5,
+      gender: 'girl',
+      interests: 'khủng long',
+      preferred_characters: 'Thỏ Bông',
+      bedtime_goal: 'Chia sẻ',
+    } as any);
+
+    expect(p.childId).toBeDefined();
+    expect(p.gender).toBe('girl');
+    expect(p.interests).toBe('khủng long');
+    expect(p.preferredCharacters).toBe('Thỏ Bông');
+    expect(p.bedtimeGoal).toBe('Chia sẻ');
+    expect(p.isActive).toBe(1);
+  });
+
+  it('create() rejects a name already used by an active child', async () => {
+    await service.create('tenant-3', { child_name: 'Dup', age: 4 } as any);
+
+    await expect(service.create('tenant-3', { child_name: 'Dup', age: 5 } as any))
+      .rejects.toThrow(ConflictException);
+  });
+
+  it('create() allows a name freed by a soft delete', async () => {
+    const first = await service.create('tenant-3', { child_name: 'Freed', age: 4 } as any);
+    await service.delete(first.childId, 'tenant-3');
+
+    const second = await service.create('tenant-3', { child_name: 'Freed', age: 4 } as any);
+
+    expect(second.childId).not.toBe(first.childId);
+  });
+
+  it('create() does not collide across tenants', async () => {
+    await service.create('tenant-3', { child_name: 'Shared', age: 4 } as any);
+
+    const other = await service.create('tenant-4', { child_name: 'Shared', age: 4 } as any);
+
+    expect(other.childId).toBeDefined();
   });
 });
