@@ -4,6 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository, MoreThan } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { MemoryItem } from './entities/memory-item.entity';
+import { isStorableMemoryText, sanitizeMemoryText } from './memory-content';
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -100,13 +101,16 @@ export class MemoryService {
     const boost = this.configService.get<number>('memory.confidenceBoost', 0.1);
     let saved = 0;
     for (const mem of memories) {
+      const cleanValue = sanitizeMemoryText(mem.value);
+      if (!isStorableMemoryText(cleanValue)) continue;
+
       const existing = await this.repo.findOne({
         where: {
           tenantId,
           childId,
           memoryType: mem.type || mem.memory_type,
           memoryKey: mem.key || mem.memory_key,
-          memoryValue: mem.value || mem.memory_value,
+          memoryValue: cleanValue,
         },
       });
 
@@ -123,7 +127,7 @@ export class MemoryService {
         item.storyId = storyId;
         item.memoryType = mem.type || mem.memory_type;
         item.memoryKey = mem.key || mem.memory_key;
-        item.memoryValue = mem.value || mem.memory_value;
+        item.memoryValue = cleanValue;
         item.confidence = mem.confidence || 0.5;
         item.source = 'story_extract';
         item.lastReinforcedAt = new Date().toISOString();
@@ -145,8 +149,11 @@ export class MemoryService {
     const boost = this.configService.get<number>('memory.confidenceBoost', 0.1);
     const delta = dto.action === 'boost' ? boost * 2 : -boost * 2;
 
+    const cleanValue = sanitizeMemoryText(dto.value);
+    if (!isStorableMemoryText(cleanValue)) return { success: false };
+
     const existing = await this.repo.findOne({
-      where: { tenantId, childId, memoryType: dto.type, memoryKey: dto.key, memoryValue: dto.value },
+      where: { tenantId, childId, memoryType: dto.type, memoryKey: dto.key, memoryValue: cleanValue },
     });
 
     if (existing) {
@@ -164,7 +171,7 @@ export class MemoryService {
       item.childId = childId;
       item.memoryType = dto.type;
       item.memoryKey = dto.key;
-      item.memoryValue = dto.value;
+      item.memoryValue = cleanValue;
       item.confidence = 0.5;
       item.source = 'feedback';
       item.lastReinforcedAt = new Date().toISOString();
@@ -195,6 +202,9 @@ export class MemoryService {
 
   async bulkCreate(tenantId: string, childId: string, memories: any[], storyId: string): Promise<void> {
     for (const mem of memories) {
+      const cleanValue = sanitizeMemoryText(mem.value || mem.memory_value);
+      if (!isStorableMemoryText(cleanValue)) continue;
+
       const existing = await this.repo.findOne({
         where: { tenantId, childId, memoryKey: mem.key || mem.memory_key },
       });
@@ -203,7 +213,7 @@ export class MemoryService {
 
       if (existing) {
         existing.confidence = mem.confidence || 0.5;
-        existing.memoryValue = mem.value || mem.memory_value;
+        existing.memoryValue = cleanValue;
         existing.storyId = storyId;
         await this.repo.save(existing);
       } else {
@@ -214,7 +224,7 @@ export class MemoryService {
         item.storyId = storyId;
         item.memoryType = mem.type || mem.memory_type;
         item.memoryKey = mem.key || mem.memory_key;
-        item.memoryValue = mem.value || mem.memory_value;
+        item.memoryValue = cleanValue;
         item.confidence = mem.confidence || 0.5;
         await this.repo.save(item);
       }

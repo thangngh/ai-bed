@@ -15,6 +15,19 @@ class MockClient(BaseLLMClient):
 
 
 class TestLLMRouter:
+    @pytest.fixture(autouse=True)
+    def rotation_off(self, monkeypatch):
+        """These tests are about the failure-drop policy, not about rotation.
+
+        `main.py` calls `load_dotenv()` at import, so a developer's real
+        `Engine/.env` decides `LLM_ROTATE` here unless the test pins it. With
+        rotation on, a two-provider chain enters at the *second* provider on
+        every other call, so the broken one is tried half as often and never
+        reaches MAX_CONSECUTIVE_FAILURES -- the drop test then fails on that
+        machine alone.
+        """
+        monkeypatch.delenv("LLM_ROTATE", raising=False)
+
     def test_successful_primary(self):
         router = LLMRouter()
         router.providers = {"primary": MockClient("primary")}
