@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsInt, Min, Max, IsOptional, IsIn, MaxLength } from 'class-validator';
+import { IsString, IsNotEmpty, IsInt, Min, Max, IsOptional, IsIn, IsUUID, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { IsChildSafeText } from '../../../common/validation/child-text';
 
@@ -42,6 +42,17 @@ export const ALLOWED_MOODS = [
 ];
 
 export class CreateStoryDto {
+  /**
+   * The profile this story belongs to, when the caller already has one.
+   *
+   * Optional on purpose: without it the service falls back to matching by
+   * name, which is what older clients and the integration suite do.
+   * `child_name` and `age` therefore stay required -- the fallback needs them.
+   */
+  @IsOptional()
+  @IsUUID()
+  child_id?: string;
+
   // Structural checks only. The content blocklist contains `dao`, and a child
   // can be called Dao.
   @IsString()

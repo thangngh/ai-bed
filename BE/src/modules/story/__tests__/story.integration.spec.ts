@@ -206,4 +206,75 @@ describe('Story Module (integration)', () => {
     expect(res.body.status).toBe('ok');
     expect(res.headers['x-tenant-id']).toBeUndefined();
   });
+
+  it('POST /story/create with child_id reuses that profile and creates no new one', async () => {
+    // Not "52345678...": that prefix is already claimed by the mood-label
+    // test above within this same in-memory DB, which would leave this
+    // tenant with a leftover "An" profile and break the length-1 assertion.
+    const tenant = 'a2345678-1234-4123-8123-123456789abc';
+    const created = await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'CoId', age: 5 })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/story/create')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_id: created.body.child_id, child_name: 'CoId', age: 5, theme: 'Động vật' })
+      .expect(201);
+
+    const list = await request(app.getHttpServer())
+      .get('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .expect(200);
+    expect(list.body.children).toHaveLength(1);
+    expect(list.body.children[0].child_id).toBe(created.body.child_id);
+  });
+
+  it('POST /story/create with a child_id from another tenant returns 404', async () => {
+    const owner = 'b2345678-1234-4123-8123-123456789abc';
+    const stranger = 'c2345678-1234-4123-8123-123456789abc';
+    const created = await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', owner)
+      .send({ child_name: 'RiengTu', age: 4 })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/story/create')
+      .set('X-Tenant-Id', stranger)
+      .send({ child_id: created.body.child_id, child_name: 'RiengTu', age: 4, theme: 'Động vật' })
+      .expect(404);
+  });
+
+  it('POST /story/create with a deleted child_id returns 404', async () => {
+    const tenant = 'd2345678-1234-4123-8123-123456789abc';
+    const created = await request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'DaXoaTruyen', age: 4 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .delete(`/child-profile/${created.body.child_id}`)
+      .set('X-Tenant-Id', tenant)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .post('/story/create')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_id: created.body.child_id, child_name: 'DaXoaTruyen', age: 4, theme: 'Động vật' })
+      .expect(404);
+  });
+
+  it('POST /story/create without child_id still works', async () => {
+    const tenant = 'e2345678-1234-4123-8123-123456789abc';
+    const res = await request(app.getHttpServer())
+      .post('/story/create')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'KhongId', age: 4, theme: 'Động vật' })
+      .expect(201);
+
+    expect(res.body.story_id).toBeDefined();
+  });
 });

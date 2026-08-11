@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { Story } from './entities/story.entity';
 import { StorySection } from './entities/story-section.entity';
+import { ChildProfile } from '../child/entities/child-profile.entity';
 import { CreateStoryDto } from './dto/create-story.dto';
 import { StoryResponse } from './dto/story-response.dto';
 import { ChildService } from '../child/child.service';
@@ -28,13 +29,15 @@ export class StoryService {
   }
 
   async create(dto: CreateStoryDto, tenantId: string): Promise<StoryResponse> {
-    const child = await this.childService.getOrCreate(tenantId, {
-      child_name: dto.child_name,
-      age: dto.age,
-      gender: dto.gender,
-      preferred_characters: dto.favorite_character,
-      bedtime_goal: dto.goal,
-    });
+    const child = dto.child_id
+      ? await this.resolveChild(dto.child_id, tenantId)
+      : await this.childService.getOrCreate(tenantId, {
+          child_name: dto.child_name,
+          age: dto.age,
+          gender: dto.gender,
+          preferred_characters: dto.favorite_character,
+          bedtime_goal: dto.goal,
+        });
 
     const memories = await this.memoryService.getRelevant(tenantId, child.childId);
     const recentStories = await this.getRecentSummaries(tenantId, child.childId);
@@ -84,6 +87,23 @@ export class StoryService {
     }
 
     return StoryResponse.from(story, engineResult);
+  }
+
+  /**
+   * The profile behind an explicit `child_id`.
+   *
+   * This branch never creates. A caller that names an id is claiming the
+   * profile already exists, so a miss -- unknown, deleted, or owned by another
+   * tenant -- is a 404 rather than a quietly conjured second profile. The
+   * tenant check is the isolation boundary: `findById` looks up by primary key
+   * alone and would otherwise hand out another tenant's child.
+   */
+  private async resolveChild(childId: string, tenantId: string): Promise<ChildProfile> {
+    const child = await this.childService.findById(childId);
+    if (!child || child.tenantId !== tenantId || child.isActive !== 1) {
+      throw new NotFoundException('Child profile not found');
+    }
+    return child;
   }
 
   /**
