@@ -12,6 +12,7 @@ interface AnalyticsScreenProps {
   activeChild: ChildProfile | null;
   onBack: () => void;
   isNightMode: boolean;
+  onAddChild: () => void;
 }
 
 export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
@@ -19,6 +20,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
   activeChild,
   onBack,
   isNightMode,
+  onAddChild,
 }) => {
   const [selectedChildId, setSelectedChildId] = useState<string>(
     activeChild?.childId || (childProfiles.length > 0 ? childProfiles[0].childId : '')
@@ -139,7 +141,14 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
           <div className="text-center py-16">
             <div className="text-5xl mb-4">👶</div>
             <p className="text-lg font-semibold mb-2">Chưa có hồ sơ bé nào</p>
-            <p className="text-sm opacity-70">Thêm hồ sơ để xem thống kê</p>
+            <p className="text-sm opacity-70 mb-5">Thêm hồ sơ để xem thống kê</p>
+            <button
+              id="btn-analytics-add-child"
+              onClick={onAddChild}
+              className="px-5 py-3 rounded-2xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+            >
+              Thêm hồ sơ bé
+            </button>
           </div>
         )}
 

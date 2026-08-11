@@ -359,6 +359,7 @@ export default function App() {
             activeChild={activeChild}
             onBack={() => setCurrentScreen('home')}
             isNightMode={isNightMode}
+            onAddChild={() => { setProfileEditTarget(null); setCurrentScreen('profile'); }}
           />
         )}
       </main>
