@@ -28,6 +28,9 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
   const handleSave = (saved: ChildProfile) => {
     if (editingChild === 'new') {
       onUpdate([...children, saved]);
+      // Nothing else would set an active child, and without one the story
+      // form has nobody to write for.
+      if (children.length === 0) onSelectChild(saved);
     } else {
       onUpdate(children.map(c => c.childId === saved.childId ? { ...c, ...saved } : c));
     }

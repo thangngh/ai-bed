@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, Sparkles, Save } from 'lucide-react';
 import { AgeGroup, GenderOption, ChildProfile } from '../types';
 import { childClient } from '../utils/childClient';
+import { ApiError } from '../utils/api';
 
 interface ProfileEditorProps {
   editChild?: ChildProfile | null;
@@ -28,11 +29,13 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({
   const [preferredCharacters, setPreferredCharacters] = useState(editChild?.preferredCharacters || '');
   const [bedtimeGoal, setBedtimeGoal] = useState(editChild?.bedtimeGoal || '');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!childName.trim()) return;
     setSaving(true);
+    setError(null);
     try {
       const payload = {
         child_name: childName.trim(),
@@ -43,14 +46,20 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({
         bedtime_goal: bedtimeGoal.trim() || undefined,
       };
       if (isEdit && editChild) {
-        const updated = await childClient.update(editChild.childId, payload);
-        onSave({ ...updated, interests: payload.interests, preferredCharacters: payload.preferred_characters, bedtimeGoal: payload.bedtime_goal });
+        // The response now carries every field, so there is nothing to patch
+        // back in by hand -- doing so was how stale values got re-saved.
+        onSave(await childClient.update(editChild.childId, payload));
       } else {
-        const created = await childClient.create(payload);
-        onSave(created);
+        onSave(await childClient.create(payload));
       }
     } catch (err) {
-      console.error('Failed to save profile', err);
+      // A silent failure here reads as a dead button. 409 is the only case a
+      // parent can act on, so it gets its own words.
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? 'Đã có bé tên này rồi. Ba mẹ chọn tên khác nhé!'
+          : 'Lưu hồ sơ thất bại. Ba mẹ thử lại nhé!'
+      );
     } finally {
       setSaving(false);
     }
@@ -75,11 +84,12 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({
       }`}>
         {/* Name */}
         <div className="space-y-1.5">
-          <label className="text-sm font-bold">Tên bé <span className="text-rose-500">*</span></label>
-          <input value={childName} onChange={e => setChildName(e.target.value)}
+          <label htmlFor="input-profile-child-name" className="text-sm font-bold">Tên bé <span className="text-rose-500">*</span></label>
+          <input id="input-profile-child-name" value={childName} onChange={e => { setChildName(e.target.value); setError(null); }}
             className={`w-full px-4 py-3 rounded-2xl text-sm border focus:outline-none focus:ring-2 ${
-              isNightMode ? 'bg-slate-900 border-slate-700' : 'bg-amber-50/50 border-amber-200'
+              error ? 'border-rose-500' : isNightMode ? 'bg-slate-900 border-slate-700' : 'bg-amber-50/50 border-amber-200'
             }`} />
+          {error && <p className="text-xs text-rose-500 font-medium pl-1">{error}</p>}
         </div>
 
         {/* Age */}

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProfileManager } from '../ProfileManager';
 import { ChildProfile } from '../../types';
 
@@ -41,5 +41,34 @@ describe('ProfileManager', () => {
     render(<ProfileManager {...baseProps} children={[AN]} />);
 
     expect(screen.getByText('Trang các bé')).toBeInTheDocument();
+  });
+
+  it('makes the first saved child the active one', async () => {
+    const { childClient } = await import('../../utils/childClient');
+    const created: ChildProfile = { childId: 'c9', childName: 'Bo', age: 5 };
+    vi.mocked(childClient.create).mockResolvedValue(created);
+    const onSelectChild = vi.fn();
+    const onUpdate = vi.fn();
+
+    render(<ProfileManager {...baseProps} children={[]} onSelectChild={onSelectChild} onUpdate={onUpdate} />);
+    fireEvent.click(screen.getByRole('button', { name: /thêm hồ sơ bé/i }));
+    fireEvent.change(screen.getByLabelText(/tên bé/i), { target: { value: 'Bo' } });
+    fireEvent.click(screen.getByRole('button', { name: /thêm bé/i }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledWith([created]));
+    expect(onSelectChild).toHaveBeenCalledWith(created);
+  });
+
+  it('shows a message when the name is already taken', async () => {
+    const { childClient } = await import('../../utils/childClient');
+    const { ApiError } = await import('../../utils/api');
+    vi.mocked(childClient.create).mockRejectedValue(new ApiError('API_ERROR', 'Conflict', 409));
+
+    render(<ProfileManager {...baseProps} children={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: /thêm hồ sơ bé/i }));
+    fireEvent.change(screen.getByLabelText(/tên bé/i), { target: { value: 'Trung' } });
+    fireEvent.click(screen.getByRole('button', { name: /thêm bé/i }));
+
+    expect(await screen.findByText(/đã có bé tên này rồi/i)).toBeInTheDocument();
   });
 });
