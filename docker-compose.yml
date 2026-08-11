@@ -118,7 +118,12 @@ services:
     healthcheck:
       # Checks the proxy hop as well as the SPA shell: a frontend that serves
       # index.html but cannot reach the BE is not usable.
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      #
+      # 127.0.0.1, not localhost: the image's 10-listen-on-ipv6-by-default.sh
+      # cannot patch default.conf (it is not writable by the nginx user), so
+      # nginx listens on IPv4 only -- while busybox wget tries ::1 first and
+      # the check failed with "connection refused" against a healthy proxy.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
