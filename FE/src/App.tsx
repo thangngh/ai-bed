@@ -50,6 +50,7 @@ export default function App() {
     } catch { return null; }
   });
   const [isChildSelectorOpen, setIsChildSelectorOpen] = useState(false);
+  const [profileEditTarget, setProfileEditTarget] = useState<ChildProfile | null>(null);
 
   // Sync activeChild to localStorage
   useEffect(() => {
@@ -118,13 +119,6 @@ export default function App() {
     }
     setActiveChild(child);
   };
-
-  // Auto-open child selector when no children exist
-  useEffect(() => {
-    if (children.length === 0 && currentScreen === 'form') {
-      setIsChildSelectorOpen(true);
-    }
-  }, [children.length, currentScreen]);
 
   // Handle Form Submission
   const handleFormSubmit = async (input: StoryFormInput) => {
@@ -347,12 +341,16 @@ export default function App() {
         )}
         {currentScreen === 'profile' && (
           <ProfileManager
+            // Remount when the edit target changes: the editor seeds its state
+            // once, so a prop change alone would keep showing the old child.
+            key={profileEditTarget?.childId ?? 'list'}
             children={children}
             activeChild={activeChild}
             onSelectChild={handleSelectChild}
             onUpdate={setChildren}
-            onBack={() => setCurrentScreen('home')}
+            onBack={() => { setProfileEditTarget(null); setCurrentScreen('home'); }}
             isNightMode={isNightMode}
+            initialEditChild={profileEditTarget}
           />
         )}
         {currentScreen === 'analytics' && (
@@ -381,8 +379,16 @@ export default function App() {
         children={children}
         activeChild={activeChild}
         onSelect={handleSelectChild}
-        onAddNew={() => { setIsChildSelectorOpen(false); setCurrentScreen('profile'); }}
-        onEdit={(child) => { setIsChildSelectorOpen(false); setCurrentScreen('profile'); }}
+        onAddNew={() => {
+          setIsChildSelectorOpen(false);
+          setProfileEditTarget(null);
+          setCurrentScreen('profile');
+        }}
+        onEdit={(child) => {
+          setIsChildSelectorOpen(false);
+          setProfileEditTarget(child);
+          setCurrentScreen('profile');
+        }}
         isNightMode={isNightMode}
       />
 

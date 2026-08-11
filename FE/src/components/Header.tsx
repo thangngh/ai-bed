@@ -1,5 +1,5 @@
 import React from 'react';
-import { Moon, Sun, BookOpen, Sparkles, Heart, BarChart3 } from 'lucide-react';
+import { Moon, Sun, BookOpen, Sparkles, Heart, BarChart3, Users } from 'lucide-react';
 import { AppScreen, ChildProfile } from '../types';
 import { getAvatarColor, getInitial } from '../utils/avatar';
 
@@ -101,6 +101,23 @@ export const Header: React.FC<HeaderProps> = ({
                 {savedStoriesCount}
               </span>
             )}
+          </button>
+
+          {/* Children Button -- unconditional on purpose: the profile screen was
+              unreachable until the first child existed, and the first child
+              could only be created from the profile screen. */}
+          <button
+            id="btn-header-children"
+            onClick={() => setScreen('profile')}
+            className={`p-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all ${
+              isNightMode
+                ? 'bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-200'
+                : 'bg-amber-100/80 hover:bg-amber-200/60 border border-amber-200 text-amber-900'
+            }`}
+            title="Hồ sơ các bé"
+          >
+            <Users className="w-4 h-4 text-emerald-500" />
+            <span className="hidden sm:inline">Bé</span>
           </button>
 
           {/* Analytics Button */}

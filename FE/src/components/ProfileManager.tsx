@@ -12,12 +12,14 @@ interface ProfileManagerProps {
   onUpdate: (children: ChildProfile[]) => void;
   onBack: () => void;
   isNightMode: boolean;
+  /** Open straight into the editor for this child. App remounts on change. */
+  initialEditChild?: ChildProfile | null;
 }
 
 export const ProfileManager: React.FC<ProfileManagerProps> = ({
-  children, activeChild, onSelectChild, onUpdate, onBack, isNightMode,
+  children, activeChild, onSelectChild, onUpdate, onBack, isNightMode, initialEditChild,
 }) => {
-  const [editingChild, setEditingChild] = useState<ChildProfile | null | 'new'>(null);
+  const [editingChild, setEditingChild] = useState<ChildProfile | null | 'new'>(initialEditChild ?? null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const handleEdit = (child: ChildProfile) => setEditingChild(child);
@@ -76,7 +78,14 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
           <div className="text-center py-10 opacity-70">
             <UserPlus className="w-12 h-12 mx-auto mb-3" />
             <p className="font-semibold">Chưa có hồ sơ bé nào</p>
-            <p className="text-xs mt-1">Thêm hồ sơ đầu tiên để bắt đầu!</p>
+            <p className="text-xs mt-1 mb-4">Thêm hồ sơ đầu tiên để bắt đầu!</p>
+            <button
+              id="btn-profile-add-first"
+              onClick={handleAddNew}
+              className="px-5 py-3 rounded-2xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 inline-flex items-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /><span>Thêm hồ sơ bé</span>
+            </button>
           </div>
         )}
         {children.map(child => {
@@ -111,13 +120,11 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
         })}
       </div>
 
-      {children.length > 0 && (
-        <button onClick={handleAddNew} className={`w-full py-3.5 rounded-2xl text-sm font-bold border-2 border-dashed flex items-center justify-center gap-2 transition-colors cursor-pointer ${
-          isNightMode ? 'border-slate-600 text-slate-300 hover:border-indigo-500' : 'border-amber-300 text-amber-800 hover:border-indigo-400'
-        }`}>
-          <Plus className="w-4 h-4" /><span>Thêm hồ sơ mới</span>
-        </button>
-      )}
+      <button id="btn-profile-add" onClick={handleAddNew} className={`w-full py-3.5 rounded-2xl text-sm font-bold border-2 border-dashed flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+        isNightMode ? 'border-slate-600 text-slate-300 hover:border-indigo-500' : 'border-amber-300 text-amber-800 hover:border-indigo-400'
+      }`}>
+        <Plus className="w-4 h-4" /><span>Thêm hồ sơ mới</span>
+      </button>
     </div>
   );
 };
