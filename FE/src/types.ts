@@ -3,6 +3,8 @@ export type AgeGroup = 3 | 4 | 5 | 6;
 export type GenderOption = 'boy' | 'girl' | 'unspecified';
 
 export interface StoryFormInput {
+  /** The profile the story belongs to. The form no longer asks for a name. */
+  childId: string;
   childName: string;
   childAge: AgeGroup;
   favoriteTopic: string;
