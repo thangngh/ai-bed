@@ -292,10 +292,15 @@ export default function App() {
 
         {currentScreen === 'form' && (
           <FormScreen
+            // Remount on child change: the optional fields seed from the
+            // profile once, so switching child mid-form would keep the old
+            // one's favourite character and bedtime goal.
+            key={activeChild?.childId ?? 'none'}
             onSubmit={handleFormSubmit}
             onBack={() => setCurrentScreen('home')}
             isNightMode={isNightMode}
             activeChild={activeChild}
+            onOpenChildSelector={() => setIsChildSelectorOpen(true)}
           />
         )}
 

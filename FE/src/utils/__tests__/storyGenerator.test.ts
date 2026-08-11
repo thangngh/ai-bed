@@ -27,6 +27,7 @@ describe('storyGenerator', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const input: StoryFormInput = {
+      childId: 'c1',
       childName: 'An',
       childAge: 4,
       favoriteTopic: 'Động vật',
@@ -41,6 +42,7 @@ describe('storyGenerator', () => {
     expect(url).toBe('/api/story/create');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({
+      child_id: 'c1',
       child_name: 'An',
       age: 4,
       theme: 'Động vật',
@@ -60,7 +62,7 @@ describe('storyGenerator', () => {
       json: async () => ({ story_id: 'abc-123', title: 'T', sections: [] }),
     }));
 
-    const story = await generateBedtimeStory({ childName: 'An', childAge: 4, favoriteTopic: 'Động vật' });
+    const story = await generateBedtimeStory({ childId: 'c1', childName: 'An', childAge: 4, favoriteTopic: 'Động vật' });
 
     expect(story.id).toBe('be-abc-123');
   });
@@ -71,7 +73,7 @@ describe('storyGenerator', () => {
       json: async () => ({ title: 'T', sections: [] }),
     }));
 
-    const story = await generateBedtimeStory({ childName: 'An', childAge: 4, favoriteTopic: 'Động vật' });
+    const story = await generateBedtimeStory({ childId: 'c1', childName: 'An', childAge: 4, favoriteTopic: 'Động vật' });
 
     expect(story.id).toMatch(/^story-\d+$/);
   });
@@ -149,7 +151,7 @@ describe('storyGenerator', () => {
       json: async () => ({ error: { code: 'ENGINE_ERROR', message: 'Engine down' } }),
     }));
 
-    const input: StoryFormInput = { childName: 'An', childAge: 4, favoriteTopic: 'Động vật' };
+    const input: StoryFormInput = { childId: 'c1', childName: 'An', childAge: 4, favoriteTopic: 'Động vật' };
     await expect(generateBedtimeStory(input)).rejects.toThrow('ENGINE_ERROR');
   });
 });

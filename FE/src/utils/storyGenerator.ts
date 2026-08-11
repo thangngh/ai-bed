@@ -120,6 +120,7 @@ export async function generateBedtimeStory(input: StoryFormInput): Promise<Bedti
     method: 'POST',
     timeoutMs: STORY_TIMEOUT_MS,
     body: JSON.stringify({
+      child_id: input.childId,
       child_name: input.childName,
       age: input.childAge,
       theme: input.favoriteTopic,

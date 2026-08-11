@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
-  User,
-  Calendar,
   Compass,
   HeartHandshake,
   Smile,
@@ -10,8 +8,10 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronUp,
+  UserPlus,
+  Users,
 } from 'lucide-react';
-import { AgeGroup, GenderOption, StoryFormInput, ChildProfile, MemoryContext } from '../types';
+import { GenderOption, StoryFormInput, ChildProfile, MemoryContext } from '../types';
 import { TOPIC_SUGGESTIONS, LESSON_SUGGESTIONS, MOOD_SUGGESTIONS } from '../data/sampleStories';
 import { memoryClient } from '../utils/memoryClient';
 import { childTextError, FIELD_LIMITS } from '../utils/childText';
@@ -21,6 +21,8 @@ interface FormScreenProps {
   onBack: () => void;
   isNightMode: boolean;
   activeChild?: ChildProfile | null;
+  /** Opens the shared ChildSelector -- the one path to switching child. */
+  onOpenChildSelector: () => void;
 }
 
 export const FormScreen: React.FC<FormScreenProps> = ({
@@ -28,9 +30,8 @@ export const FormScreen: React.FC<FormScreenProps> = ({
   onBack,
   isNightMode,
   activeChild,
+  onOpenChildSelector,
 }) => {
-  const [childName, setChildName] = useState(activeChild?.childName || '');
-  const [childAge, setChildAge] = useState<AgeGroup>(activeChild?.age || 4);
   const [favoriteTopic, setFavoriteTopic] = useState('Động vật');
   const [customTopic, setCustomTopic] = useState('');
 
@@ -43,7 +44,6 @@ export const FormScreen: React.FC<FormScreenProps> = ({
   const [favoriteCharacter, setFavoriteCharacter] = useState(activeChild?.preferredCharacters || '');
 
   const [errors, setErrors] = useState<{
-    childName?: string;
     customTopic?: string;
     customLesson?: string;
     favoriteCharacter?: string;
@@ -63,26 +63,20 @@ export const FormScreen: React.FC<FormScreenProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedName = childName.trim();
-    if (!trimmedName) {
-      setErrors({ childName: 'Ba mẹ vui lòng nhập tên của bé nhé!' });
-      return;
-    }
+    if (!activeChild) return;
 
     // The same rules the BE and the Engine enforce, said here so a parent
     // learns about them at the keyboard rather than after a loading screen.
-    // Only the free-text boxes need checking -- the rest of the form is
-    // buttons, whose values this component chose itself.
+    // The child's name is no longer among them: it comes from the stored
+    // profile, which was validated when it was saved.
     const trimmedCharacter = favoriteCharacter.trim();
     const found = {
-      childName: childTextError(trimmedName),
       customTopic: childTextError(customTopic.trim()),
       customLesson: childTextError(customLesson.trim()),
       favoriteCharacter: childTextError(trimmedCharacter),
     };
     if (Object.values(found).some(Boolean)) {
       setErrors({
-        childName: found.childName ?? undefined,
         customTopic: found.customTopic ?? undefined,
         customLesson: found.customLesson ?? undefined,
         favoriteCharacter: found.favoriteCharacter ?? undefined,
@@ -95,8 +89,9 @@ export const FormScreen: React.FC<FormScreenProps> = ({
     const finalLesson = customLesson.trim() || lesson;
 
     onSubmit({
-      childName: trimmedName,
-      childAge,
+      childId: activeChild.childId,
+      childName: activeChild.childName,
+      childAge: activeChild.age,
       favoriteTopic: finalTopic,
       gender,
       lesson: finalLesson,
@@ -104,6 +99,40 @@ export const FormScreen: React.FC<FormScreenProps> = ({
       favoriteCharacter: trimmedCharacter,
     });
   };
+
+  // Every hook above runs unconditionally; only the render forks. Without an
+  // active child there is nothing to personalise, so asking for one is the
+  // whole screen.
+  if (!activeChild) {
+    return (
+      <div className="max-w-2xl mx-auto py-10 animate-fadeIn text-center space-y-5">
+        <UserPlus className="w-14 h-14 mx-auto opacity-60" />
+        <div className="space-y-1.5">
+          <h2 className="text-2xl font-extrabold">Chọn bé trước khi kể chuyện</h2>
+          <p className="text-sm opacity-80">
+            Câu chuyện được viết riêng theo tuổi và sở thích của bé, nên cần biết đang kể cho ai.
+          </p>
+        </div>
+        <button
+          id="btn-form-pick-child"
+          onClick={onOpenChildSelector}
+          className="px-6 py-3.5 rounded-2xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 inline-flex items-center gap-2 cursor-pointer"
+        >
+          <Users className="w-4 h-4" /><span>Chọn bé</span>
+        </button>
+        <div>
+          <button
+            onClick={onBack}
+            className={`inline-flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-xl transition-colors cursor-pointer ${
+              isNightMode ? 'bg-slate-800/80 hover:bg-slate-700 text-slate-300' : 'bg-amber-100/80 hover:bg-amber-200/60 text-amber-900'
+            }`}
+          >
+            <ArrowLeft className="w-4 h-4" /><span>Trở về trang chủ</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto py-4 md:py-6 animate-fadeIn space-y-6">
@@ -168,63 +197,22 @@ export const FormScreen: React.FC<FormScreenProps> = ({
             <span>Thông tin bắt buộc</span>
           </div>
 
-          {/* 1. Tên bé */}
-          <div className="space-y-2">
-            <label htmlFor="input-child-name" className="block text-sm font-bold flex items-center gap-1.5">
-              <User className="w-4 h-4 text-indigo-500" />
-              <span>Tên của bé <span className="text-rose-500">*</span></span>
-            </label>
-            <input
-              id="input-child-name"
-              type="text"
-              maxLength={FIELD_LIMITS.childName}
-              placeholder="Nhập tên bé (Ví dụ: Bé An, Bé Minh, Bơ...)"
-              value={childName}
-              onChange={(e) => {
-                setChildName(e.target.value);
-                if (errors.childName) setErrors({ ...errors, childName: undefined });
-              }}
-              className={`w-full px-4 py-3 rounded-2xl text-sm border focus:outline-none focus:ring-2 transition-all ${
-                errors.childName
-                  ? 'border-rose-500 focus:ring-rose-500/30'
-                  : isNightMode
-                  ? 'bg-slate-900 border-slate-700 text-slate-100 focus:ring-indigo-500/50'
-                  : 'bg-amber-50/50 border-amber-200 text-amber-950 focus:ring-indigo-500/30'
-              }`}
-            />
-            {errors.childName && (
-              <p className="text-xs text-rose-500 font-medium pl-1">{errors.childName}</p>
-            )}
-            {activeChild && (
-              <p className="text-xs text-indigo-500 font-medium">✨ Dùng cho bé {activeChild.childName}</p>
-            )}
-          </div>
-
-          {/* 2. Tuổi bé */}
-          <div className="space-y-2">
-            <label className="block text-sm font-bold flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-amber-500" />
-              <span>Tuổi của bé <span className="text-rose-500">*</span></span>
-            </label>
-            <div className="grid grid-cols-4 gap-2">
-              {([3, 4, 5, 6] as AgeGroup[]).map((age) => (
-                <button
-                  type="button"
-                  key={age}
-                  id={`btn-age-${age}`}
-                  onClick={() => setChildAge(age)}
-                  className={`py-3 px-2 rounded-2xl text-xs sm:text-sm font-bold border transition-all cursor-pointer ${
-                    childAge === age
-                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-md'
-                      : isNightMode
-                      ? 'bg-slate-900/60 border-slate-700 text-slate-300 hover:bg-slate-700'
-                      : 'bg-amber-50/60 border-amber-200 text-amber-900 hover:bg-amber-100'
-                  }`}
-                >
-                  {age} tuổi
-                </button>
-              ))}
+          {/* Who this story is for. Read-only: the profile owns it. */}
+          <div className={`flex items-center gap-3 p-3 rounded-2xl border ${
+            isNightMode ? 'bg-slate-900/60 border-slate-700' : 'bg-amber-50/60 border-amber-200'
+          }`}>
+            <div className="flex-1 min-w-0 text-sm">
+              <span className="font-bold">Đang kể cho bé {activeChild.childName}</span>
+              <span className="opacity-70"> · {activeChild.age} tuổi</span>
             </div>
+            <button
+              type="button"
+              id="btn-form-change-child"
+              onClick={onOpenChildSelector}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-indigo-400/40 text-indigo-500 hover:bg-indigo-500/10 transition-colors cursor-pointer shrink-0"
+            >
+              Đổi bé
+            </button>
           </div>
 
           {/* 3. Chủ đề yêu thích */}
