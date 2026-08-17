@@ -9,6 +9,8 @@ import { LlmQueryDto } from '../dto/llm-query.dto';
 import { RangeQueryDto } from '../dto/range-query.dto';
 import { RuleDto } from '../dto/rule.dto';
 import { IpStateDto } from '../dto/ip-state.dto';
+import { IpStateQueryDto } from '../dto/ip-state-query.dto';
+import { AlertQueryDto } from '../dto/alert-query.dto';
 
 @Controller('admin/dashboard')
 @UseGuards(AdminGuard)
@@ -21,21 +23,8 @@ export class DashboardController {
   }
 
   @Get('traffic/events')
-  async trafficEvents(
-    @Query() query: TrafficQueryDto & {
-      ip?: string; route?: string; status?: string;
-      limit?: string; offset?: string;
-    },
-  ) {
-    const parsed: any = { ...query };
-    if (parsed.status) {
-      const s = parseInt(parsed.status, 10);
-      if (isNaN(s)) throw new BadRequestException('status must be a number');
-      parsed.status = s;
-    }
-    if (parsed.limit) parsed.limit = parseInt(parsed.limit, 10);
-    if (parsed.offset) parsed.offset = parseInt(parsed.offset, 10);
-    return this.service.trafficEvents(parsed);
+  async trafficEvents(@Query() query: TrafficQueryDto) {
+    return this.service.trafficEvents(query);
   }
 
   @Post('traffic/ingest')
@@ -49,16 +38,8 @@ export class DashboardController {
   }
 
   @Get('llm/events')
-  async llmEvents(
-    @Query() query: LlmQueryDto & {
-      provider?: string; model?: string;
-      limit?: string; offset?: string;
-    },
-  ) {
-    const parsed: any = { ...query };
-    if (parsed.limit) parsed.limit = parseInt(parsed.limit, 10);
-    if (parsed.offset) parsed.offset = parseInt(parsed.offset, 10);
-    return this.service.llmEvents(parsed);
+  async llmEvents(@Query() query: LlmQueryDto) {
+    return this.service.llmEvents(query);
   }
 
   @Get('ip/rules')
@@ -94,13 +75,8 @@ export class DashboardController {
   }
 
   @Get('ip/states')
-  async ipStates(
-    @Query() query: { status?: string; limit?: string; offset?: string },
-  ) {
-    const parsed: any = { ...query };
-    if (parsed.limit) parsed.limit = parseInt(parsed.limit, 10);
-    if (parsed.offset) parsed.offset = parseInt(parsed.offset, 10);
-    return this.service.listIpStates(parsed);
+  async ipStates(@Query() query: IpStateQueryDto) {
+    return this.service.listIpStates(query);
   }
 
   @Get('ip/states/:ip')
@@ -117,14 +93,8 @@ export class DashboardController {
   }
 
   @Get('alerts')
-  async alerts(
-    @Query() query: { resolved?: string; limit?: string; offset?: string },
-  ) {
-    const parsed: any = { ...query };
-    if (parsed.resolved !== undefined) parsed.resolved = parsed.resolved === 'true';
-    if (parsed.limit) parsed.limit = parseInt(parsed.limit, 10);
-    if (parsed.offset) parsed.offset = parseInt(parsed.offset, 10);
-    return this.service.listAlerts(parsed);
+  async alerts(@Query() query: AlertQueryDto) {
+    return this.service.listAlerts(query);
   }
 
   @Patch('alerts/:id/resolve')
