@@ -152,6 +152,11 @@ describe('DashboardService', () => {
       expect(page.total).toBe(1);
       expect(page.items[0].ip).toBe('10.0.0.2');
     });
+
+    it('filters by from and to inclusively', async () => {
+      const page = await service.trafficEvents({ limit: 50, from: '2026-08-14T10', to: '2026-08-14T10' } as any);
+      expect(page.total).toBe(2);
+    });
   });
 
   describe('ingestTraffic', () => {
@@ -217,6 +222,22 @@ describe('DashboardService', () => {
       const result = await service.ingestTraffic({ logPath: badFile });
       expect(result.ingested).toBe(1);
       expect(result.skipped).toBe(1);
+    });
+
+    it('writes T-separated timestamps and hour buckets', async () => {
+      await service.ingestTraffic({ logPath: logFile });
+      const events = await ds.getRepository(TrafficEvent).find();
+      expect(events[0].ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+      const hourly = await ds.getRepository(TrafficHourly).find();
+      expect(hourly[0].hourBucket).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
+    });
+
+    it('ingested rows are visible through trafficOverview date filters', async () => {
+      await service.ingestTraffic({ logPath: logFile });
+      const hourly = await ds.getRepository(TrafficHourly).find();
+      const bucket = hourly[0].hourBucket;
+      const result = await service.trafficOverview({ from: bucket, to: bucket } as any);
+      expect(result.requests).toBe(3);
     });
   });
 

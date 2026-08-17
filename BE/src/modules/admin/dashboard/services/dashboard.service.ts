@@ -131,9 +131,7 @@ export class DashboardService {
 
   async trafficEvents(query: TrafficQueryDto & { ip?: string; route?: string; status?: number; limit?: number; offset?: number }): Promise<{ items: TrafficEvent[]; total: number; limit: number; offset: number }> {
     const { from, to } = this.parseRange(query);
-    const where: any = {};
-    if (from) where.ts = from;
-    if (to) where.ts = { ...where.ts, ...LessThanOrEqual(to) };
+    const where: Record<string, unknown> = { ...this.eventWhere(from, to) };
     if (query.ip) where.ip = query.ip;
     if (query.route) where.route = query.route;
     if (query.status) where.status = query.status;
@@ -270,11 +268,11 @@ export class DashboardService {
   }
 
   private parseNginxTime(timeLocal: string): string {
+    // nginx writes "14/Aug/2026:10:30:00 +0000"; swapping the first colon for a
+    // space is what makes it parseable by Date.
     const d = new Date(timeLocal.replace(/:/, ' '));
-    if (isNaN(d.getTime())) {
-      return new Date().toISOString().replace('T', ' ').slice(0, 19);
-    }
-    return d.toISOString().replace('T', ' ').slice(0, 19);
+    if (isNaN(d.getTime())) return this.nowIso();
+    return d.toISOString().slice(0, 19);
   }
 
   private statusClass(status: number): string {
@@ -376,7 +374,7 @@ export class DashboardService {
   }
 
   async unblockIp(ip: string): Promise<void> {
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const now = this.nowIso();
     await this.ipStateRepo.update(ip, { status: 'ok', score: 0, blockedUntil: null, reason: null });
     await this.alertRepo.update({ ip, resolved: false }, { resolved: true, resolvedAt: now });
   }
@@ -408,7 +406,7 @@ export class DashboardService {
     isFallback: boolean;
   }): Promise<void> {
     const estCostUsd = this.estimateCost(params.provider, params.model, params.promptTokens, params.completionTokens);
-    const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const ts = this.nowIso();
 
     await this.llmEventRepo.save(Object.assign(new LlmUsageEvent(), {
       provider: params.provider,
@@ -459,9 +457,7 @@ export class DashboardService {
 
   async llmOverview(query: LlmQueryDto): Promise<LlmOverview> {
     const { from, to } = this.parseRange(query);
-    const where: any = {};
-    if (from) where.ts = MoreThanOrEqual(from);
-    if (to) where.ts = { ...where.ts, ...LessThanOrEqual(to) };
+    const where = this.eventWhere(from, to);
 
     const [agg] = await this.llmEventRepo
       .createQueryBuilder('e')
@@ -518,9 +514,7 @@ export class DashboardService {
   }
   async llmEvents(query: LlmQueryDto & { provider?: string; model?: string; limit?: number; offset?: number }): Promise<{ items: LlmUsageEvent[]; total: number; limit: number; offset: number }> {
     const { from, to } = this.parseRange(query);
-    const where: any = {};
-    if (from) where.ts = MoreThanOrEqual(from);
-    if (to) where.ts = { ...where.ts, ...LessThanOrEqual(to) };
+    const where: Record<string, unknown> = { ...this.eventWhere(from, to) };
     if (query.provider) where.provider = query.provider;
     if (query.model) where.model = query.model;
     const limit = Math.min(query.limit ?? 50, 200);
@@ -544,7 +538,7 @@ export class DashboardService {
     const alert = await this.alertRepo.findOne({ where: { id } });
     if (!alert) return null;
     alert.resolved = true;
-    alert.resolvedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    alert.resolvedAt = this.nowIso();
     return this.alertRepo.save(alert);
   }
 
@@ -559,7 +553,7 @@ export class DashboardService {
     const existing = await this.settingRepo.findOne({ where: { key } });
     if (existing) {
       existing.value = value;
-      existing.updatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      existing.updatedAt = this.nowIso();
       return this.settingRepo.save(existing);
     }
     return this.settingRepo.save(Object.assign(new AdminSetting(), { key, value }));
@@ -568,6 +562,11 @@ export class DashboardService {
   private async getSetting(key: string, defaultValue: string): Promise<string> {
     const row = await this.settingRepo.findOne({ where: { key } });
     return row?.value ?? defaultValue;
+  }
+
+  /** Canonical dashboard timestamp: YYYY-MM-DDTHH:mm:ss, UTC, no zone suffix. */
+  private nowIso(): string {
+    return new Date().toISOString().slice(0, 19);
   }
 
   private parseRange(query: { from?: string; to?: string }): { from?: string; to?: string } {

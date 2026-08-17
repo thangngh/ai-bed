@@ -86,6 +86,21 @@ Bảng tại BE/src/modules/admin/dashboard/entities/, toàn bộ trong core.db:
 - llm_usage_event — per-Engine-call (provider, model, tenant, tokens, cost, latency)
 - llm_usage_hourly — hourly rollup (provider+model+hour_bucket PK, tokens, requests, cost, lat)
 
+### 4.1 Định dạng thời gian (canonical)
+
+Toàn bộ cột thời gian của dashboard dùng **một** định dạng duy nhất:
+
+- Timestamp: `YYYY-MM-DDTHH:mm:ss` (UTC, không hậu tố zone) — `traffic_event.ts`,
+  `llm_usage_event.ts`, `alerts.created_at`, `alerts.resolved_at`,
+  `ip_states.blocked_until`, `ip_states.updated_at`, `admin_settings.updated_at`
+- Hour bucket: `YYYY-MM-DDTHH` (13 ký tự) — `traffic_hourly.hour_bucket`,
+  `llm_usage_hourly.hour_bucket`
+
+Query param `from`/`to` nhận hour bucket. Khi lọc bảng event, `to` được nới
+tới `:59:59` của giờ đó để hai mức granularity khớp nhau.
+
+Không dùng dạng ngăn cách bằng dấu cách (`'2026-08-14 10:30:00'`) ở bất kỳ đâu.
+
 ### IP State lifecycle
 
 IP request → check ip_rule → ip_state.score += 1
