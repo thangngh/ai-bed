@@ -84,6 +84,15 @@ describe('DashboardService', () => {
       expect(result.unique_ips).toBe(3);
     });
 
+    it('counts distinct IPs, not raw event rows', async () => {
+      await ds.getRepository(TrafficEvent).save([
+        Object.assign(new TrafficEvent(), { ip: '10.0.0.1', route: '/api/story/create', method: 'POST', status: 200, bytesIn: 500, bytesOut: 1200, latMs: 0.8, ts: '2026-08-14T10:05:00' }),
+        Object.assign(new TrafficEvent(), { ip: '10.0.0.1', route: '/api/story/create', method: 'POST', status: 200, bytesIn: 500, bytesOut: 1200, latMs: 0.8, ts: '2026-08-14T10:06:00' }),
+      ]);
+      const result = await service.trafficOverview({} as any);
+      expect(result.unique_ips).toBe(3);
+    });
+
     it('counts 5xx and 4xx errors separately', async () => {
       const result = await service.trafficOverview({} as any);
       expect(result.error_5xx).toBe(2);

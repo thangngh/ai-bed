@@ -96,30 +96,35 @@ export class DashboardService {
     agg.p95_latency_ms =
       totalReqs > 0 ? Math.round(rows.reduce((s, r) => s + r.latP95Ms * r.reqCount, 0) / totalReqs) : 0;
 
-    const ipWhere: any = {};
-    if (from) ipWhere.ts = MoreThanOrEqual(from);
-    if (to) ipWhere.ts = { ...ipWhere.ts, ...LessThanOrEqual(to) };
-    const uniqueIps = await this.trafficEventRepo.count({ where: ipWhere });
+    const uniqueRow = await this.trafficEventRepo
+      .createQueryBuilder('e')
+      .select('COUNT(DISTINCT e.ip)', 'unique_ips')
+      .where(this.eventWhere(from, to))
+      .getRawOne<{ unique_ips: number }>();
+    const uniqueIps = Number(uniqueRow?.unique_ips ?? 0);
 
     const statusDist = await this.trafficHourlyRepo.createQueryBuilder('h')
-      .select(['h.statusClass', 'SUM(h.reqCount) as requests'])
+      .select('h.statusClass', 'status_class')
+      .addSelect('SUM(h.reqCount)', 'requests')
       .where(where)
       .groupBy('h.statusClass')
-      .getRawMany();
+      .getRawMany<{ status_class: string; requests: string }>();
 
     const topRoutes = await this.trafficHourlyRepo.createQueryBuilder('h')
-      .select(['h.route', 'SUM(h.reqCount) as requests', 'SUM(h.bytesOut) as bytes_out'])
+      .select('h.route', 'route')
+      .addSelect('SUM(h.reqCount)', 'requests')
+      .addSelect('SUM(h.bytesOut)', 'bytes_out')
       .where(where)
       .groupBy('h.route')
       .orderBy('requests', 'DESC')
       .limit(10)
-      .getRawMany();
+      .getRawMany<{ route: string; requests: string; bytes_out: string }>();
 
     return {
       ...agg,
       unique_ips: uniqueIps,
       hourly: rows.map((r) => ({ hour: r.hourBucket, requests: r.reqCount, bytes_out: r.bytesOut, lat_p95_ms: Math.round(r.latP95Ms) })),
-      status_dist: statusDist.map((r) => ({ status_class: r.statusClass, requests: Number(r.requests) })),
+      status_dist: statusDist.map((r) => ({ status_class: r.status_class, requests: Number(r.requests) })),
       top_routes: topRoutes.map((r) => ({ route: r.route, requests: Number(r.requests), bytes_out: Number(r.bytes_out) })),
     };
   }
@@ -473,23 +478,25 @@ export class DashboardService {
 
     const byProvider = await this.llmEventRepo
       .createQueryBuilder('e')
-      .select(['e.provider', 'COUNT(*) as calls', 'SUM(e.estCostUsd) as est_cost_usd'])
+      .select('e.provider', 'provider')
+      .addSelect('COUNT(*)', 'calls')
+      .addSelect('SUM(e.estCostUsd)', 'est_cost_usd')
       .where(where)
       .groupBy('e.provider')
-      .getRawMany();
+      .getRawMany<{ provider: string; calls: string; est_cost_usd: string }>();
 
     const byModel = await this.llmEventRepo
       .createQueryBuilder('e')
-      .select([
-        'e.provider', 'e.model', 'COUNT(*) as calls',
-        'SUM(e.promptTokens) as prompt_tokens',
-        'SUM(e.completionTokens) as completion_tokens',
-        'SUM(e.estCostUsd) as est_cost_usd',
-      ])
+      .select('e.provider', 'provider')
+      .addSelect('e.model', 'model')
+      .addSelect('COUNT(*)', 'calls')
+      .addSelect('SUM(e.promptTokens)', 'prompt_tokens')
+      .addSelect('SUM(e.completionTokens)', 'completion_tokens')
+      .addSelect('SUM(e.estCostUsd)', 'est_cost_usd')
       .where(where)
       .groupBy('e.provider')
       .addGroupBy('e.model')
-      .getRawMany();
+      .getRawMany<{ provider: string; model: string; calls: string; prompt_tokens: string; completion_tokens: string; est_cost_usd: string }>();
 
     const calls = Number(agg?.calls || 0);
     const fallbackCalls = Number(agg?.fallback_calls || 0);
@@ -567,11 +574,25 @@ export class DashboardService {
     return { from: query.from, to: query.to };
   }
 
-  private hourlyWhere(from?: string, to?: string): any {
-    if (!from && !to) return undefined;
+  private hourlyWhere(from?: string, to?: string): Record<string, unknown> {
     if (from && to) return { hourBucket: Between(from, to) };
     if (from) return { hourBucket: MoreThanOrEqual(from) };
-    return { hourBucket: LessThanOrEqual(to!) };
+    if (to) return { hourBucket: LessThanOrEqual(to) };
+    return {};
+  }
+
+  /**
+   * Range filter for the raw event tables. `from`/`to` arrive as hour buckets
+   * ("2026-08-14T10"); event timestamps are full seconds ("2026-08-14T10:30:00").
+   * Widening `to` to the end of its hour keeps the two granularities aligned.
+   */
+  private eventWhere(from?: string, to?: string): Record<string, unknown> {
+    const lo = from;
+    const hi = to ? `${to.slice(0, 13)}:59:59` : undefined;
+    if (lo && hi) return { ts: Between(lo, hi) };
+    if (lo) return { ts: MoreThanOrEqual(lo) };
+    if (hi) return { ts: LessThanOrEqual(hi) };
+    return {};
   }
 
   private makeAlert(type: string, severity: AlertSeverity, ip: string | null, detail: Record<string, unknown>): Alert {
