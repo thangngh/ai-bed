@@ -8,6 +8,7 @@ import { TrafficQueryDto } from '../dto/traffic-query.dto';
 import { LlmQueryDto } from '../dto/llm-query.dto';
 import { RangeQueryDto } from '../dto/range-query.dto';
 import { RuleDto } from '../dto/rule.dto';
+import { UpdateRuleDto } from '../dto/update-rule.dto';
 import { IpStateDto } from '../dto/ip-state.dto';
 import { IpStateQueryDto } from '../dto/ip-state-query.dto';
 import { AlertQueryDto } from '../dto/alert-query.dto';
@@ -55,7 +56,7 @@ export class DashboardController {
   @Patch('ip/rules/:id')
   async updateIpRule(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: Partial<RuleDto>,
+    @Body() dto: UpdateRuleDto,
   ) {
     const result = await this.service.updateIpRule(id, dto);
     if (!result) throw new NotFoundException('IP rule not found');

@@ -7,6 +7,7 @@ import { TrafficQueryDto } from '../dto/traffic-query.dto';
 import { LlmQueryDto } from '../dto/llm-query.dto';
 import { IpStateQueryDto } from '../dto/ip-state-query.dto';
 import { AlertQueryDto } from '../dto/alert-query.dto';
+import { UpdateRuleDto } from '../dto/update-rule.dto';
 
 describe('RangeQueryDto', () => {
   it('accepts an hour bucket', () => {
@@ -106,5 +107,38 @@ describe('ValidationPipe on the query DTOs used by previously-unvalidated handle
       const result = await pipe.transform({ resolved: 'true', limit: '5' }, queryMeta(AlertQueryDto));
       expect(result).toMatchObject({ resolved: true, limit: 5 });
     });
+  });
+});
+
+/**
+ * Fix round 2: `updateIpRule` took `@Body() dto: Partial<RuleDto>`.
+ * `Partial<T>` is a mapped type, which TypeScript also can't express in
+ * `design:paramtypes` -- Nest saw `Object` there too, so this PATCH body
+ * (which controls IP blocking) was never validated. Fixed by declaring a
+ * real `UpdateRuleDto` class matching the fields dashboard.service.ts's
+ * `updateIpRule` actually reads (action/enabled/tier/note).
+ */
+describe('ValidationPipe on UpdateRuleDto (PATCH ip/rules/:id)', () => {
+  const pipe = new ValidationPipe();
+  const bodyMeta: ArgumentMetadata = { type: 'body', metatype: UpdateRuleDto, data: undefined };
+
+  it('rejects an action outside allow/deny', async () => {
+    await expect(
+      pipe.transform({ action: 'quarantine' }, bodyMeta),
+    ).rejects.toThrow();
+  });
+
+  it('rejects a non-boolean enabled', async () => {
+    await expect(
+      pipe.transform({ enabled: 'yes' }, bodyMeta),
+    ).rejects.toThrow();
+  });
+
+  it('passes through valid fields without stripping them', async () => {
+    const result = await pipe.transform(
+      { action: 'deny', enabled: false, tier: 'strict', note: 'manual block' },
+      bodyMeta,
+    );
+    expect(result).toMatchObject({ action: 'deny', enabled: false, tier: 'strict', note: 'manual block' });
   });
 });
