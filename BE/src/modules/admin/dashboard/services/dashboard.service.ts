@@ -166,60 +166,49 @@ export class DashboardService {
     const raw = fs.readFileSync(dto.logPath, 'utf8');
     const lines = raw.split('\n').filter((line) => line.trim());
     const logFormat = this.config.get<string>('DASHBOARD_NGINX_LOG_FORMAT', 'auto');
-    const throttleThreshold = await this.getSetting('ddos.throttle_threshold', '50');
-    const permThreshold = await this.getSetting('ddos.perm_threshold', '500');
+    const thresholds = {
+      throttle: parseInt(await this.getSetting('ddos.throttle_threshold', '50'), 10),
+      perm: parseInt(await this.getSetting('ddos.perm_threshold', '500'), 10),
+    };
 
     let ingested = 0;
     let skipped = 0;
     const ipCounts = new Map<string, number>();
 
-    for (const line of lines) {
-      const parsed = this.parseLogLine(line, logFormat);
-      if (!parsed) {
-        skipped++;
-        continue;
+    // One transaction: a mid-file failure must not leave a half-written rollup.
+    await this.trafficEventRepo.manager.transaction(async () => {
+      for (const line of lines) {
+        const parsed = this.parseLogLine(line, logFormat);
+        if (!parsed) {
+          skipped++;
+          continue;
+        }
+
+        // No tuple de-duplication here. A flood is many identical requests in
+        // the same second; dropping them as "duplicates" would hide exactly the
+        // signal this feature exists to detect. Replay safety is the caller's
+        // job (the cron ingestor tails the log and never re-reads a slice).
+        await this.trafficEventRepo.save(Object.assign(new TrafficEvent(), parsed));
+        ingested++;
+
+        await this.upsertHourly(parsed as TrafficEvent, parsed.ts!.slice(0, 13));
+        ipCounts.set(parsed.ip!, (ipCounts.get(parsed.ip!) ?? 0) + 1);
       }
+    });
 
-      const exists = await this.trafficEventRepo.findOne({
-        where: { ip: parsed.ip!, ts: parsed.ts!, route: parsed.route!, method: parsed.method!, status: parsed.status! },
-      });
-      if (exists) {
-        skipped++;
-        continue;
-      }
-
-      await this.trafficEventRepo.save(Object.assign(new TrafficEvent(), parsed));
-      ingested++;
-
-      const hourBucket = parsed.ts!.slice(0, 13);
-      await this.upsertHourly(parsed as TrafficEvent, hourBucket);
-
-      const count = ipCounts.get(parsed.ip!) || 0;
-      ipCounts.set(parsed.ip!, count + 1);
-    }
-
-    // DDoS detection: update ip_state scores and raise alerts.
     let alertsCreated = 0;
-    const throttleNum = parseInt(throttleThreshold, 10);
-    const permNum = parseInt(permThreshold, 10);
-
     for (const [ip, count] of ipCounts) {
-      const score = await this.updateIpScore(ip, count);
-      if (score >= permNum && score > 0) {
-        const existing = await this.alertRepo.findOne({ where: { ip, type: 'ddos_permanent', resolved: false } });
-        if (!existing) {
-          await this.alertRepo.save(this.makeAlert('ddos_permanent', 'critical', ip, { req_count: count, threshold: permNum }));
-          await this.ipStateRepo.update(ip, { status: 'perm_blocked' as IpStatus, blockedUntil: null });
-          alertsCreated++;
-        }
-      } else if (score >= throttleNum) {
-        const existing = await this.alertRepo.findOne({ where: { ip, type: 'ddos_throttled', resolved: false } });
-        if (!existing) {
-          await this.alertRepo.save(this.makeAlert('ddos_throttled', 'warning', ip, { req_count: count, threshold: throttleNum }));
-          await this.ipStateRepo.update(ip, { status: 'throttled' as IpStatus, blockedUntil: null });
-          alertsCreated++;
-        }
-      }
+      const { status, changed } = await this.evaluateIp(ip, count, thresholds);
+      if (!changed || status === 'ok') continue;
+
+      const type = status === 'perm_blocked' ? 'ddos_permanent' : 'ddos_throttled';
+      const severity: AlertSeverity = status === 'perm_blocked' ? 'critical' : 'warning';
+      const threshold = status === 'perm_blocked' ? thresholds.perm : thresholds.throttle;
+      const existing = await this.alertRepo.findOne({ where: { ip, type, resolved: false } });
+      if (existing) continue;
+
+      await this.alertRepo.save(this.makeAlert(type, severity, ip, { req_count: count, threshold }));
+      alertsCreated++;
     }
 
     return { ingested, skipped, alerts_created: alertsCreated };
@@ -394,20 +383,41 @@ export class DashboardService {
     await this.ipStateRepo.update(ip, { status: 'ok', score: 0, blockedUntil: null, reason: null });
     await this.alertRepo.update({ ip, resolved: false }, { resolved: true, resolvedAt: now });
   }
-  private async updateIpScore(ip: string, increment: number): Promise<number> {
-    let state = await this.ipStateRepo.findOne({ where: { ip } });
-    if (!state) {
-      state = Object.assign(new IpState(), { ip, status: 'ok', tier: 'default', score: 0, autoBlocked: false });
+  /**
+   * The single place that decides an IP's status during ingest. Escalation is
+   * monotonic: ok -> throttled -> perm_blocked. It never de-escalates; only
+   * unblockIp() and applyIpRules() may do that.
+   */
+  private async evaluateIp(
+    ip: string,
+    batchCount: number,
+    thresholds: { throttle: number; perm: number },
+  ): Promise<{ score: number; status: IpStatus; changed: boolean }> {
+    const state =
+      (await this.ipStateRepo.findOne({ where: { ip } })) ??
+      Object.assign(new IpState(), { ip, status: 'ok' as IpStatus, tier: 'default', score: 0, autoBlocked: false });
+
+    const previous = state.status;
+    state.score = (state.score || 0) + batchCount;
+
+    const target: IpStatus =
+      state.score >= thresholds.perm ? 'perm_blocked' :
+      state.score >= thresholds.throttle ? 'throttled' : 'ok';
+
+    if (this.severityRank(target) > this.severityRank(previous)) {
+      state.status = target;
+      state.autoBlocked = true;
+      state.blockedUntil = null;
+      state.reason = `ddos: ${state.score} requests`;
     }
-    state.score = (state.score || 0) + increment;
-    if (!state.status || state.status === 'ok') {
-      const permThresh = parseInt(await this.getSetting('ddos.perm_threshold', '500'), 10);
-      const throttleThresh = parseInt(await this.getSetting('ddos.throttle_threshold', '50'), 10);
-      state.status = state.score >= permThresh ? 'perm_blocked' :
-                     state.score >= throttleThresh ? 'throttled' : 'ok';
-    }
+    state.updatedAt = this.nowIso();
     await this.ipStateRepo.save(state);
-    return state.score;
+
+    return { score: state.score, status: state.status, changed: state.status !== previous };
+  }
+
+  private severityRank(status: IpStatus): number {
+    return { ok: 0, throttled: 1, temp_blocked: 2, perm_blocked: 3 }[status] ?? 0;
   }
 
   // ── LLM usage ─────────────────────────────────────────────────

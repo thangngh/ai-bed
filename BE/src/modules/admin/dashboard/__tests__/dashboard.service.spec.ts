@@ -355,6 +355,55 @@ describe('DashboardService', () => {
     });
   });
 
+  describe('DDoS counting under a flood', () => {
+    let floodFile: string;
+
+    beforeEach(async () => {
+      await ds.getRepository(AdminSetting).save([
+        Object.assign(new AdminSetting(), { key: 'ddos.throttle_threshold', value: '3' }),
+        Object.assign(new AdminSetting(), { key: 'ddos.perm_threshold', value: '20' }),
+      ]);
+      floodFile = join(tmpdir(), `flood_${Date.now()}.log`);
+      // 30 identical requests in the SAME second - what a real flood looks like.
+      const lines = Array.from({ length: 30 }, () =>
+        '10.0.0.77 - - [14/Aug/2026:10:30:00 +0000] "GET /api/story/create HTTP/1.1" 200 100 50 10');
+      writeFileSync(floodFile, lines.join('\n') + '\n');
+    });
+
+    afterEach(async () => {
+      const { unlinkSync } = await import('fs');
+      try { unlinkSync(floodFile); } catch {}
+    });
+
+    it('counts every same-second request instead of de-duplicating them', async () => {
+      const result = await service.ingestTraffic({ logPath: floodFile });
+      expect(result.ingested).toBe(30);
+      expect(result.skipped).toBe(0);
+    });
+
+    it('escalates straight to perm_blocked past the permanent threshold', async () => {
+      await service.ingestTraffic({ logPath: floodFile });
+      const state = await ds.getRepository(IpState).findOne({ where: { ip: '10.0.0.77' } });
+      expect(state!.score).toBe(30);
+      expect(state!.status).toBe('perm_blocked');
+      expect(state!.autoBlocked).toBe(true);
+      const alerts = await ds.getRepository(Alert).find({ where: { ip: '10.0.0.77' } });
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].type).toBe('ddos_permanent');
+      expect(alerts[0].severity).toBe('critical');
+    });
+
+    it('escalates an already-throttled IP on a later batch', async () => {
+      await ds.getRepository(IpState).save(Object.assign(new IpState(), {
+        ip: '10.0.0.77', status: 'throttled', tier: 'default', score: 5, autoBlocked: true,
+      }));
+      await service.ingestTraffic({ logPath: floodFile });
+      const state = await ds.getRepository(IpState).findOne({ where: { ip: '10.0.0.77' } });
+      expect(state!.score).toBe(35);
+      expect(state!.status).toBe('perm_blocked');
+    });
+  });
+
   describe('LLM usage', () => {
     it('records an LLM usage event', async () => {
       await service.recordLlmUsage({

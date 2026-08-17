@@ -23,6 +23,6 @@ export class IpRule {
   createdBy!: string;
   @Column({ name: 'created_at', type: 'varchar', length: 25, default: () => "datetime('now')" })
   createdAt!: string;
-  @Column({ type: 'boolean', default: false })
+  @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 }

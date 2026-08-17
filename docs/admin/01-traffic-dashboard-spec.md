@@ -141,10 +141,15 @@ IP request → check ip_rule → ip_state.score += 1
 
 ### Traffic ingest
 nginx access.log → POST /admin/dashboard/traffic/ingest
-  → parse dòng → traffic_event (raw, giữ lại drill-down)
-  → cập nhật traffic_hourly (PK overwrite theo giờ)
-  → cập nhật ip_state.score
-  → nếu score >= threshold → throttled/perm_blocked + alert
+  → parse từng dòng → traffic_event (raw, giữ drill-down)
+  → cộng dồn traffic_hourly (khóa ip+route+status_class+hour)
+  → cộng batch count vào ip_states.score
+  → toàn bộ chạy trong 1 transaction
+
+Ingest **không** khử trùng lặp theo tuple. Một đợt flood là rất nhiều request
+giống hệt nhau trong cùng một giây — bỏ chúng đi là bỏ đúng tín hiệu cần phát
+hiện. `skipped` chỉ đếm dòng không parse được. Chống replay là trách nhiệm của
+cron ingestor (tail log, không đọc lại phần đã đọc).
 
 ### LLM usage capture
 FE → POST /story/create → BE EngineGatewayService.generate()
@@ -153,6 +158,10 @@ FE → POST /story/create → BE EngineGatewayService.generate()
   → trả về FE
 
 ### DDoS detection
-Ingest batch → mỗi IP trong window:
-  req_count > RATE_LIMIT → throttled
-  req_count > PERM_BLOCK → perm_blocked + alert
+`evaluateIp()` là nơi duy nhất quyết định status khi ingest. Leo thang một
+chiều: ok → throttled → perm_blocked, không bao giờ tự hạ cấp.
+
+  score >= ddos.throttle_threshold  → throttled     + alert warning
+  score >= ddos.perm_threshold      → perm_blocked  + alert critical
+
+Chỉ hạ cấp qua `DELETE /ip/states/:ip` (unblock) hoặc `POST /ip/rules/apply`.
