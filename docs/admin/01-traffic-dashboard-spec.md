@@ -1,8 +1,8 @@
-﻿# Dashboard quản lý traffic — Design Spec
+# Dashboard quản lý traffic — Design Spec
 
 > **Ngày:** 2026-08-14
 > **Phạm vi:** Theo dõi traffic ingress, LLM input/output, IP accept, kiểm soát DDoS
-> **Trạng thái:** Implement
+> **Trạng thái:** BE hoàn tất & xanh test — FE chưa làm
 
 ## 1. Vấn đề
 
@@ -165,3 +165,15 @@ chiều: ok → throttled → perm_blocked, không bao giờ tự hạ cấp.
   score >= ddos.perm_threshold      → perm_blocked  + alert critical
 
 Chỉ hạ cấp qua `DELETE /ip/states/:ip` (unblock) hoặc `POST /ip/rules/apply`.
+
+## 7. Nợ kỹ thuật đã biết (chấp nhận có chủ đích)
+
+| # | Vấn đề | Lý do hoãn |
+|---|---|---|
+| 1 | `traffic_hourly.lat_p95_ms` thực chất là **max**, không phải p95 | Tính p95 thật cần giữ toàn bộ mẫu latency theo giờ. Với mức traffic MVP, max là cận trên hữu ích. Đổi tên cột khi có nhu cầu thật. |
+| 2 | `trafficOverview.p95_latency_ms` là trung bình có trọng số của các max theo hàng | Hệ quả của (1). Spec §3.1 vốn đã ghi `AVG(lat_p95_ms)`. |
+| 3 | nginx `log_format` chưa được chốt trong config vận hành | Regex ingest hiện khớp `$remote_addr … "$request" $status $body_bytes_sent $request_length $request_time`. Combined format mặc định **không** khớp. Phải chốt `log_format` trong nginx conf trước khi bật cron ingest. |
+| 4 | `DASHBOARD_NGINX_LOG_FORMAT` khác `'auto'` → `parseLogLine` trả null cho mọi dòng | Chỉ có một format được hỗ trợ. Thêm format khi thực sự cần. |
+| 5 | Token của LLM là ước lượng (`ký tự/4`, `word_count × 1.3`) | Engine chưa trả token usage thật. Cột `est_cost_usd` vì thế cũng là ước lượng. |
+| 6 | Không có index trên `traffic_hourly.hour_bucket`, `ip_states.status`, `llm_usage_event.provider` | Chưa có dữ liệu đủ lớn để đo. Thêm khi thấy chậm thật. |
+| 7 | `provider`/`model` ghi vào `llm_usage_event` là giá trị **cấu hình**, không phải provider thực sự đã trả lời | Engine chưa báo ngược provider của fallback chain. Đã ghi chú trong `engine.config.ts`. |
