@@ -5,21 +5,21 @@ import { Entity, PrimaryGeneratedColumn, Column, Index } from 'typeorm';
 @Index(['ts'])
 export class TrafficEvent {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
   @Column({ type: 'varchar', length: 64 })
-  ip: string;
+  ip!: string;
   @Column({ type: 'varchar', length: 64 })
-  route: string;
+  route!: string;
   @Column({ type: 'varchar', length: 64 })
-  method: string;
+  method!: string;
   @Column({ type: 'int' })
-  status: number;
+  status!: number;
   @Column({ type: 'integer', default: 0 })
-  bytesIn: number;
+  bytesIn!: number;
   @Column({ type: 'integer', default: 0 })
-  bytesOut: number;
+  bytesOut!: number;
   @Column({ name: 'lat_ms', type: 'real', default: 0 })
-  latMs: number;
+  latMs!: number;
   @Column({ type: 'varchar', length: 25 })
-  ts: string;
+  ts!: string;
 }

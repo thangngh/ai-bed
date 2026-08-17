@@ -1,4 +1,4 @@
 export class TrafficIngestDto {
-  logPath: string;
+  logPath!: string;
   since?: string;
 }

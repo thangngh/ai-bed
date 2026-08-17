@@ -1,7 +1,7 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Query, Param, UseGuards, ParseIntPipe, NotFoundException, BadRequestException,
 } from '@nestjs/common';
-import { AdminGuard } from '../auth/admin.guard';
+import { AdminGuard } from '../../auth/admin.guard';
 import { DashboardService } from '../services/dashboard.service';
 import { TrafficIngestDto } from '../dto/traffic-ingest.dto';
 import { TrafficQueryDto } from '../dto/traffic-query.dto';

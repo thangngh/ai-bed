@@ -4,9 +4,9 @@ import { Entity, PrimaryColumn, Column } from 'typeorm';
 @Entity('admin_settings')
 export class AdminSetting {
   @PrimaryColumn({ type: 'varchar', length: 128 })
-  key: string;
+  key!: string;
   @Column({ type: 'text' })
-  value: string;
+  value!: string;
   @Column({ name: 'updated_at', type: 'varchar', length: 25, default: () => "datetime('now')" })
-  updatedAt: string;
+  updatedAt!: string;
 }

@@ -6,21 +6,21 @@ export type AlertSeverity = 'info' | 'warning' | 'critical';
 @Index(['resolved', 'createdAt'])
 export class Alert {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
   @Column({ type: 'varchar', length: 64 })
-  type: string;
+  type!: string;
   @Column({ type: 'varchar', length: 16 })
-  severity: AlertSeverity;
+  severity!: AlertSeverity;
   @Column({ type: 'varchar', length: 64, nullable: true })
-  ip: string | null;
+  ip!: string | null;
   @Column({ type: 'varchar', length: 32, nullable: true })
-  provider: string | null;
+  provider!: string | null;
   @Column({ name: 'detail_json', type: 'text' })
-  detailJson: string;
+  detailJson!: string;
   @Column({ type: 'boolean', default: false })
-  resolved: boolean;
+  resolved!: boolean;
   @Column({ name: 'created_at', type: 'varchar', length: 25, default: () => "datetime('now')" })
-  createdAt: string;
+  createdAt!: string;
   @Column({ name: 'resolved_at', type: 'varchar', length: 25, nullable: true })
-  resolvedAt: string | null;
+  resolvedAt!: string | null;
 }

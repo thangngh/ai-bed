@@ -5,23 +5,23 @@ import { Entity, PrimaryGeneratedColumn, Column, Index } from 'typeorm';
 @Index(['ts'])
 export class LlmUsageEvent {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
   @Column({ type: 'varchar', length: 32 })
-  provider: string;
+  provider!: string;
   @Column({ type: 'varchar', length: 64 })
-  model: string;
+  model!: string;
   @Column({ name: 'tenant_id', type: 'varchar', length: 64, nullable: true })
-  tenantId: string | null;
+  tenantId!: string | null;
   @Column({ name: 'prompt_tokens', type: 'integer', default: 0 })
-  promptTokens: number;
+  promptTokens!: number;
   @Column({ name: 'completion_tokens', type: 'integer', default: 0 })
-  completionTokens: number;
+  completionTokens!: number;
   @Column({ name: 'est_cost_usd', type: 'real', default: 0 })
-  estCostUsd: number;
+  estCostUsd!: number;
   @Column({ name: 'latency_ms', type: 'real', default: 0 })
-  latencyMs: number;
+  latencyMs!: number;
   @Column({ name: 'is_fallback', type: 'boolean', default: false })
-  isFallback: boolean;
+  isFallback!: boolean;
   @Column({ type: 'varchar', length: 25 })
-  ts: string;
+  ts!: string;
 }

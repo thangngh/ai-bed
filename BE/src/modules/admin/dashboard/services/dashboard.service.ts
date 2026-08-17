@@ -25,6 +25,16 @@ const MODEL_COSTS: Record<string, { prompt: number; completion: number }> = {
   'google/gemma-4-26b-a4b-it:free': { prompt: 0, completion: 0 },
 };
 
+/** Running totals accumulated over traffic_hourly rows inside trafficOverview. */
+interface TrafficAgg {
+  requests: number;
+  bytes_in: number;
+  bytes_out: number;
+  error_5xx: number;
+  error_4xx: number;
+  p95_latency_ms: number;
+}
+
 export interface TrafficOverview {
   requests: number;
   bytes_in: number;
@@ -70,20 +80,21 @@ export class DashboardService {
     const where = this.hourlyWhere(from, to);
     const rows = await this.trafficHourlyRepo.find({ where, order: { hourBucket: 'ASC' } });
 
-    const agg = rows.reduce(
+    const agg = rows.reduce<TrafficAgg>(
       (acc, r) => ({
+        ...acc,
         requests: acc.requests + r.reqCount,
         bytes_in: acc.bytes_in + r.bytesIn,
         bytes_out: acc.bytes_out + r.bytesOut,
         error_5xx: acc.error_5xx + (r.statusClass.startsWith('5') ? r.reqCount : 0),
         error_4xx: acc.error_4xx + (r.statusClass.startsWith('4') ? r.reqCount : 0),
       }),
-      { requests: 0, bytes_in: 0, bytes_out: 0, error_5xx: 0, error_4xx: 0 } as TrafficOverview,
+      { requests: 0, bytes_in: 0, bytes_out: 0, error_5xx: 0, error_4xx: 0, p95_latency_ms: 0 },
     );
 
     const totalReqs = agg.requests;
     agg.p95_latency_ms =
-      totalReqs > 0 ? Math.round((rows.reduce((s, r) => s + r.latP95Ms * r.reqCount, 0)) / totalReqs) : 0;
+      totalReqs > 0 ? Math.round(rows.reduce((s, r) => s + r.latP95Ms * r.reqCount, 0) / totalReqs) : 0;
 
     const ipWhere: any = {};
     if (from) ipWhere.ts = MoreThanOrEqual(from);
@@ -296,7 +307,7 @@ export class DashboardService {
 
   async deleteIpRule(id: number): Promise<boolean> {
     const res = await this.ipRuleRepo.delete(id);
-    return res.affected !== undefined && res.affected > 0;
+    return (res.affected ?? 0) > 0;
   }
 
   async applyIpRules(): Promise<{ matched: number; alerts_created: number }> {

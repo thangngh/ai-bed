@@ -7,6 +7,7 @@ import { StorySection } from './entities/story-section.entity';
 import { ChildProfile } from '../child/entities/child-profile.entity';
 import { CreateStoryDto } from './dto/create-story.dto';
 import { StoryResponse } from './dto/story-response.dto';
+import { EngineResponse } from '../engine-gateway/dto/engine-response.dto';
 import { ChildService } from '../child/child.service';
 import { MemoryService } from '../memory/memory.service';
 import { EngineGatewayService } from '../engine-gateway/engine-gateway.service';
@@ -70,7 +71,7 @@ export class StoryService {
     // here must never prevent a story from being saved. The BE's view of
     // provider/model is the configured primary, which may differ from the
     // Engine's actual fallback chain — tokens are estimated from the request.
-    this.recordLlmUsage(dto, engineResult, tenantId).catch((err) =>
+    this.recordLlmUsage(dto, memories, engineResult, tenantId).catch((err) =>
       this.logger.warn(`LLM usage recording failed: ${err instanceof Error ? err.message : String(err)}`),
     );
 
@@ -104,7 +105,8 @@ export class StoryService {
 
   private async recordLlmUsage(
     dto: CreateStoryDto,
-    result: StoryResponse,
+    memories: Array<{ value: string }>,
+    result: EngineResponse,
     tenantId: string,
   ): Promise<void> {
     const provider = this.config.get<string>('engine.provider', 'openai');
@@ -114,7 +116,7 @@ export class StoryService {
       theme: dto.theme,
       goal: dto.goal,
       mood: dto.mood,
-      memories: dto.memories?.map((m) => ({ value: m.value })) || [],
+      memories: memories.map((m) => ({ value: m.value })),
     });
     // Vietnamese ≈ 1 token / 1.3 words.
     const completionTokens = Math.max(1, Math.round((result.wordCount || 0) * 1.3));
