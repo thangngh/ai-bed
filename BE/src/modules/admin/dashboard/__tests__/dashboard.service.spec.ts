@@ -486,7 +486,8 @@ describe('DashboardService', () => {
       expect(result.prompt_tokens).toBe(320);
       expect(result.completion_tokens).toBe(1650);
       expect(result.est_cost_usd).toBeCloseTo(0.871, 2);
-      expect(result.avg_latency_ms).toBe(12500);
+      // AVG(12000, 10000, 8000, 5000) = 8750
+      expect(result.avg_latency_ms).toBe(8750);
     });
 
     it('calculates fallback rate', async () => {
@@ -518,7 +519,7 @@ describe('DashboardService', () => {
     beforeEach(async () => {
       await ds.getRepository(Alert).save([
         Object.assign(new Alert(), { type: 'ddos_throttled', severity: 'warning', ip: '10.0.0.1', provider: null, detailJson: '{}', resolved: false, createdAt: '2026-08-14T10:00:00' }),
-        Object.assign(new Alert(), { type: 'ddos_permanent', severity: 'critical', ip: '10.0.0.2', provider: null, detailJson: '{}', resolved: false, createdAt: '2026-08-14T10:00:00' }),
+        Object.assign(new Alert(), { type: 'ddos_permanent', severity: 'critical', ip: '10.0.0.2', provider: null, detailJson: '{}', resolved: false, createdAt: '2026-08-14T10:05:00' }),
         Object.assign(new Alert(), { type: 'rule_applied', severity: 'info', ip: null, provider: null, detailJson: '{}', resolved: true, createdAt: '2026-08-14T09:00:00', resolvedAt: '2026-08-14T10:00:00' }),
       ]);
     });

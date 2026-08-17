@@ -565,7 +565,9 @@ export class DashboardService {
     if (opts.resolved !== undefined) where.resolved = opts.resolved;
     const limit = Math.min(opts.limit ?? 50, 200);
     const offset = opts.offset ?? 0;
-    const [items, total] = await this.alertRepo.findAndCount({ where, order: { createdAt: 'DESC' }, take: limit, skip: offset });
+    const [items, total] = await this.alertRepo.findAndCount({
+      where, order: { createdAt: 'DESC', id: 'DESC' }, take: limit, skip: offset,
+    });
     return { items, total, limit, offset };
   }
 
