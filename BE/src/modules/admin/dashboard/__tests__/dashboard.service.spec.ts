@@ -173,9 +173,10 @@ describe('DashboardService', () => {
     beforeEach(async () => {
       logFile = join(tmpdir(), `test_nginx_${Date.now()}.log`);
       const lines = [
-        '192.168.1.50 - - [14/Aug/2026:10:30:00 +0000] "GET /api/story/create HTTP/1.1" 200 1234 567 89',
-        '192.168.1.50 - - [14/Aug/2026:10:30:01 +0000] "POST /api/story/create HTTP/1.1" 200 2345 678 120',
-        '10.0.0.99 - - [14/Aug/2026:10:30:02 +0000] "GET /api/child-profile HTTP/1.1" 404 100 20 5',
+        // $request_time is seconds (nginx format); 0.089s -> 89ms, 0.120s -> 120ms.
+        '192.168.1.50 - - [14/Aug/2026:10:30:00 +0000] "GET /api/story/create HTTP/1.1" 200 1234 567 0.089',
+        '192.168.1.50 - - [14/Aug/2026:10:30:01 +0000] "POST /api/story/create HTTP/1.1" 200 2345 678 0.120',
+        '10.0.0.99 - - [14/Aug/2026:10:30:02 +0000] "GET /api/child-profile HTTP/1.1" 404 100 20 0.005',
       ];
       writeFileSync(logFile, lines.join('\n') + '\n');
     });
@@ -230,6 +231,30 @@ describe('DashboardService', () => {
       const result = await service.ingestTraffic({ logPath: badFile });
       expect(result.ingested).toBe(1);
       expect(result.skipped).toBe(1);
+    });
+
+    it('converts nginx $request_time from seconds to milliseconds', async () => {
+      const secFile = join(tmpdir(), `sec_${Date.now()}.log`);
+      writeFileSync(
+        secFile,
+        '192.168.1.9 - - [14/Aug/2026:10:30:00 +0000] "GET /api/x HTTP/1.1" 200 100 50 0.123\n',
+      );
+      const result = await service.ingestTraffic({ logPath: secFile });
+      expect(result.ingested).toBe(1);
+      const events = await ds.getRepository(TrafficEvent).find({ where: { ip: '192.168.1.9' } });
+      expect(events[0].latMs).toBe(123);
+    });
+
+    it('defaults latMs to 0 when $request_time is absent from the log line', async () => {
+      const noTimeFile = join(tmpdir(), `notime_${Date.now()}.log`);
+      writeFileSync(
+        noTimeFile,
+        '192.168.1.10 - - [14/Aug/2026:10:30:00 +0000] "GET /api/x HTTP/1.1" 200 100 50\n',
+      );
+      const result = await service.ingestTraffic({ logPath: noTimeFile });
+      expect(result.ingested).toBe(1);
+      const events = await ds.getRepository(TrafficEvent).find({ where: { ip: '192.168.1.10' } });
+      expect(events[0].latMs).toBe(0);
     });
 
     it('writes T-separated timestamps and hour buckets', async () => {

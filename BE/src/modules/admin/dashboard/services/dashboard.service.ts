@@ -263,12 +263,18 @@ export class DashboardService {
 
   private parseLogLine(line: string, format: string): Partial<TrafficEvent> | null {
     if (format === 'auto' || !format) {
-      const re = /^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) [^"]*" (\d{3}) (\d+) (\d+)(?: (\d+))?/;
+      // Last group is nginx's $request_time, a float in SECONDS (e.g. "0.123"),
+      // not an integer. Accept an optional decimal part so it actually matches.
+      const re = /^(\S+) \S+ \S+ \[([^\]]+)\] "(\S+) (\S+) [^"]*" (\d{3}) (\d+) (\d+)(?: (\d+(?:\.\d+)?))?/;
       const m = line.match(re);
       if (!m) return null;
 
-      const [, ip, timeLocal, method, route, status, bytesOut, bytesIn, latMs] = m;
+      const [, ip, timeLocal, method, route, status, bytesOut, bytesIn, requestTimeSec] = m;
       const ts = this.parseNginxTime(timeLocal);
+
+      // Unit contract: nginx $request_time is seconds; traffic_event.latMs is
+      // milliseconds. Convert here so every downstream consumer sees milliseconds.
+      const latMs = requestTimeSec ? Math.round(parseFloat(requestTimeSec) * 1000) : 0;
 
       return {
         ip,
@@ -277,7 +283,7 @@ export class DashboardService {
         status: parseInt(status, 10),
         bytesIn: parseInt(bytesIn || '0', 10),
         bytesOut: parseInt(bytesOut, 10),
-        latMs: parseFloat(latMs || '0'),
+        latMs,
         ts,
       };
     }
