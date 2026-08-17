@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
+import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, EntityManager } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { TrafficEvent } from '../entities/traffic-event.entity';
 import { TrafficHourly } from '../entities/traffic-hourly.entity';
@@ -176,7 +176,10 @@ export class DashboardService {
     const ipCounts = new Map<string, number>();
 
     // One transaction: a mid-file failure must not leave a half-written rollup.
-    await this.trafficEventRepo.manager.transaction(async () => {
+    // Both writes below go through `manager` (not `this.trafficEventRepo` /
+    // `this.trafficHourlyRepo`), which run on the default query runner and
+    // would otherwise silently execute outside this transaction.
+    await this.trafficEventRepo.manager.transaction(async (manager) => {
       for (const line of lines) {
         const parsed = this.parseLogLine(line, logFormat);
         if (!parsed) {
@@ -188,10 +191,10 @@ export class DashboardService {
         // the same second; dropping them as "duplicates" would hide exactly the
         // signal this feature exists to detect. Replay safety is the caller's
         // job (the cron ingestor tails the log and never re-reads a slice).
-        await this.trafficEventRepo.save(Object.assign(new TrafficEvent(), parsed));
+        await manager.save(Object.assign(new TrafficEvent(), parsed));
         ingested++;
 
-        await this.upsertHourly(parsed as TrafficEvent, parsed.ts!.slice(0, 13));
+        await this.upsertHourly(manager, parsed as TrafficEvent, parsed.ts!.slice(0, 13));
         ipCounts.set(parsed.ip!, (ipCounts.get(parsed.ip!) ?? 0) + 1);
       }
     });
@@ -214,15 +217,21 @@ export class DashboardService {
     return { ingested, skipped, alerts_created: alertsCreated };
   }
 
-  private async upsertHourly(event: TrafficEvent, hourBucket: string): Promise<void> {
+  /**
+   * `manager` is required, not optional: ingestTraffic must run this inside
+   * its transaction's query runner. An optional param that silently fell
+   * back to `this.trafficHourlyRepo` would re-introduce the bug where hourly
+   * writes escape the transaction.
+   */
+  private async upsertHourly(manager: EntityManager, event: TrafficEvent, hourBucket: string): Promise<void> {
     const statusClass = this.statusClass(event.status);
-    const existing = await this.trafficHourlyRepo.findOne({
+    const existing = await manager.findOne(TrafficHourly, {
       where: { ip: event.ip, hourBucket, route: event.route, statusClass },
     });
 
     const lat = event.latMs || 0;
     if (existing) {
-      await this.trafficHourlyRepo
+      await manager
         .createQueryBuilder()
         .update(TrafficHourly)
         .set({
@@ -235,7 +244,7 @@ export class DashboardService {
         .where({ ip: event.ip, hourBucket, route: event.route, statusClass })
         .execute();
     } else {
-      await this.trafficHourlyRepo.save(Object.assign(new TrafficHourly(), {
+      await manager.save(Object.assign(new TrafficHourly(), {
         ip: event.ip,
         hourBucket,
         route: event.route,

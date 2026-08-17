@@ -1,4 +1,4 @@
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { DashboardService } from '../services/dashboard.service';
 import { TrafficEvent } from '../entities/traffic-event.entity';
 import { TrafficHourly } from '../entities/traffic-hourly.entity';
@@ -34,13 +34,17 @@ function mockConfigService(): ConfigService {
 describe('DashboardService', () => {
   let ds: DataSource;
   let service: DashboardService;
+  let trafficEventRepo: Repository<TrafficEvent>;
+  let trafficHourlyRepo: Repository<TrafficHourly>;
 
   beforeEach(async () => {
     ds = makeDataSource(ALL_ENTITIES);
     await ds.initialize();
+    trafficEventRepo = ds.getRepository(TrafficEvent);
+    trafficHourlyRepo = ds.getRepository(TrafficHourly);
     service = new DashboardService(
-      ds.getRepository(TrafficEvent),
-      ds.getRepository(TrafficHourly),
+      trafficEventRepo,
+      trafficHourlyRepo,
       ds.getRepository(LlmUsageEvent),
       ds.getRepository(LlmUsageHourly),
       ds.getRepository(IpRule),
@@ -234,6 +238,38 @@ describe('DashboardService', () => {
       expect(events[0].ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
       const hourly = await ds.getRepository(TrafficHourly).find();
       expect(hourly[0].hourBucket).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
+    });
+
+    it('writes traffic_event and traffic_hourly through the transaction manager, not the outer repos', async () => {
+      // Regression test for a real bug: ingestTraffic wraps writes in
+      // `this.trafficEventRepo.manager.transaction(async () => { ... })` but
+      // the callback used `this.trafficEventRepo`/`this.trafficHourlyRepo`
+      // directly instead of the callback's `manager` argument. Those repos run
+      // on the default query runner, not the transaction's query runner, so a
+      // mid-file failure would NOT roll back earlier writes in a pooled
+      // database (Postgres/MySQL). This cannot be observed by checking row
+      // counts after a simulated failure: TypeORM's sqlite driver holds a
+      // single physical connection, so even the buggy code appears to roll
+      // back correctly there (verified manually - see task-6-report.md).
+      // Spying on the outer repos' write methods is deterministic regardless
+      // of driver: after the fix, ingestTraffic must never call them.
+      const eventSaveSpy = jest.spyOn(trafficEventRepo, 'save');
+      const hourlyFindSpy = jest.spyOn(trafficHourlyRepo, 'findOne');
+      const hourlySaveSpy = jest.spyOn(trafficHourlyRepo, 'save');
+      const hourlyQbSpy = jest.spyOn(trafficHourlyRepo, 'createQueryBuilder');
+
+      await service.ingestTraffic({ logPath: logFile });
+
+      expect(eventSaveSpy).not.toHaveBeenCalled();
+      expect(hourlyFindSpy).not.toHaveBeenCalled();
+      expect(hourlySaveSpy).not.toHaveBeenCalled();
+      expect(hourlyQbSpy).not.toHaveBeenCalled();
+
+      // The writes still happened - just via the transactional manager.
+      const events = await ds.getRepository(TrafficEvent).find();
+      const hourly = await ds.getRepository(TrafficHourly).find();
+      expect(events).toHaveLength(3);
+      expect(hourly.length).toBeGreaterThan(0);
     });
 
     it('ingested rows are visible through trafficOverview date filters', async () => {
