@@ -1,15 +1,12 @@
-import { IsDateString, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
+import { RangeQueryDto } from './range-query.dto';
 
-export class LlmQueryDto {
+export class LlmQueryDto extends RangeQueryDto {
   @IsOptional()
-  @IsDateString()
-  from?: string;
+  @IsString()
+  provider?: string;
+
   @IsOptional()
-  @IsDateString()
-  to?: string;
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(1000)
-  limit?: number;
+  @IsString()
+  model?: string;
 }
