@@ -1,7 +1,9 @@
-import { IsDateString, IsInt, IsMin, IsOptional } from 'class-validator';
+﻿import { IsInt, IsOptional, IsString } from 'class-validator';
+import { RangeQueryDto } from './range-query.dto';
 
-export class TrafficQueryDto {
-  @IsOptional() @IsDateString() from: string;
-  @IsOptional() @IsDateString() to: string;
-  @IsInt() @Min(0) limit: number = 50;
+export class TrafficQueryDto extends RangeQueryDto {
+  @IsOptional()
+  @IsInt()
+  @IsString()
+  logPath?: string;
 }

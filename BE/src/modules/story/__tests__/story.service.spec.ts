@@ -1,6 +1,7 @@
-import { Test } from '@nestjs/testing';
+﻿import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { StoryService } from '../story.service';
 import { Story } from '../entities/story.entity';
 import { StorySection } from '../entities/story-section.entity';
@@ -8,6 +9,7 @@ import { ChildService } from '../../child/child.service';
 import { MemoryService } from '../../memory/memory.service';
 import { EngineGatewayService } from '../../engine-gateway/engine-gateway.service';
 import { QueueService } from '../../../common/services/queue.service';
+import { DashboardService } from '../../admin/dashboard/services/dashboard.service';
 
 describe('StoryService', () => {
   let service: StoryService;
@@ -37,7 +39,7 @@ describe('StoryService', () => {
         },
         {
           provide: MemoryService,
-          useValue: { getRelevant: jest.fn(), bulkCreate: jest.fn() },
+          useValue: { getRelevant: jest.fn(), bulkCreate: jest.fn(), extractFromStory: jest.fn() },
         },
         {
           provide: EngineGatewayService,
@@ -46,6 +48,17 @@ describe('StoryService', () => {
         {
           provide: QueueService,
           useValue: { schedule: jest.fn((_t, fn) => fn()) },
+        },
+        {
+          provide: DashboardService,
+          useValue: {
+            estimatePromptTokens: jest.fn().mockReturnValue(100),
+            recordLlmUsage: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn((key, def) => def) },
         },
       ],
     }).compile();
@@ -65,7 +78,7 @@ describe('StoryService', () => {
     story.tenantId = 't1';
     story.title = 'Test Story';
     story.content = '{}';
-    story.theme = 'Động vật';
+    story.theme = 'Äá»™ng váº­t';
     await storyRepo.save(story);
 
     const section = new StorySection();

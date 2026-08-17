@@ -1,0 +1,143 @@
+﻿# Dashboard quản lý traffic — Design Spec
+
+> **Ngày:** 2026-08-14
+> **Phạm vi:** Theo dõi traffic ingress, LLM input/output, IP accept, kiểm soát DDoS
+> **Trạng thái:** Implement
+
+## 1. Vấn đề
+
+Hệ thống hiện có 3 lớp: nginx (edge), BE (NestJS), Engine (FastAPI → LLM). Ba lớp này sinh ra dữ liệu hoạt động — access log, số lần gọi LLM, token, latency — nhưng không có màn hình nào đọc ra. Admin mở SQLite bằng tay.
+
+Cần dashboard:
+1. Thống kê traffic — request, bytes in/out, latency, status code, unique IP, top route
+2. Thống kê LLM input/output — gọi, prompt/completion tokens, chi phí, latency, fallback rate
+3. Thống kê IP accept — IP active, block, throttle
+4. Kiểm soát DDoS — IP rules, state lifecycle, alert
+
+## 2. Quyết định thiết kế
+
+| Quyết định | Chọn | Lý do |
+|---|---|---|
+| Cơ sở dữ liệu | core.db | Operational/admin data, không tenant-scoped. Đã chứa admin_users, feedback. |
+| Traffic ingest | Endpoint admin + CLI script | Demo dùng endpoint, prod dùng cron script. |
+| LLM usage capture | BE EngineGatewayService ghi event | BE biết tenant_id; Engine không có. |
+| Token estimation | Dựa trên word_count + request size | Engine chưa báo token usage, ướp lượng tạm thời. |
+| DDoS detection | Trigger trong traffic ingest | Ingest batch → IP vượt ngưỡng → state + alert. |
+| Thư viện biểu đồ | CSS bars thuần | Trùng khớp với Phase 4C pattern. |
+| Auth | AdminGuard (JWT HS256) | Tái sử dụng cơ chế đã có. |
+
+## 3. Screen design → Schema mapping
+
+### 3.1 Traffic Overview Screen
+
+KPI: requests, bytes in, bytes out, p95 latency, unique IPs, 5xx count
+Hourly trend bars, status code distribution, top routes table.
+
+| UI | Entity.Column |
+|---|---|
+| requests | traffic_hourly.SUM(req_count) |
+| bytes in | traffic_hourly.SUM(bytes_in) |
+| bytes out | traffic_hourly.SUM(bytes_out) |
+| p95 latency | traffic_hourly.AVG(lat_p95_ms) |
+| unique IPs | traffic_event.COUNT(DISTINCT ip) |
+| 5xx | traffic_hourly SUM where status_class=5xx |
+| hourly bars | traffic_hourly.hour_bucket, SUM(req_count) |
+| status dist | traffic_hourly.status_class, SUM(req_count) |
+| top routes | traffic_hourly.route, SUM(req_count), SUM(bytes_out) |
+
+### 3.2 LLM Usage Screen
+
+KPI: calls, prompt tokens, completion tokens, est cost, avg latency, fallback rate
+Provider breakdown bars, model table.
+
+| UI | Entity.Column |
+|---|---|
+| calls | llm_usage_event.COUNT / llm_usage_hourly.SUM(requests) |
+| prompt tokens | llm_usage_event.SUM(prompt_tokens) |
+| completion tokens | llm_usage_event.SUM(completion_tokens) |
+| est cost | llm_usage_event.SUM(est_cost_usd) |
+| avg latency | llm_usage_event.AVG(latency_ms) |
+| fallback rate | llm_usage_event.SUM(is_fallback)/COUNT |
+| provider breakdown | llm_usage_hourly.provider, SUM(requests), SUM(est_cost_usd) |
+| model table | llm_usage_event.provider, model, COUNT, SUM(prompt_tokens), SUM(completion_tokens), SUM(est_cost_usd) |
+
+### 3.3 IP Management Screen
+
+IP Rules table → ip_rule(pattern, action, tier, created_at, enabled)
+Active IPs → ip_state(ip, status, score, blocked_until, auto_blocked)
+unblock → ip_state(status=ok, score=0, blocked_until=null)
+toggle enable → ip_rule.enabled
+
+### 3.4 Alerts Screen
+
+Alerts list → alert(severity, type, ip, detail_json, created_at)
+resolve → alert(resolved=true, resolved_at=now)
+
+## 4. Schema (đã tạo)
+
+Bảng tại BE/src/modules/admin/dashboard/entities/, toàn bộ trong core.db:
+
+- admin_settings — key/value config (JSON text value)
+- alerts — operational alerts (severity, type, ip, detail_json, resolved)
+- ip_rules — allow/deny patterns (type, action, pattern, tier, enabled)
+- ip_states — runtime IP status (ip, status, score, blocked_until, auto_blocked)
+- traffic_event — raw nginx log (ip, route, method, status, bytes_in/out, lat_ms, ts)
+- traffic_hourly — hourly rollup (ip+route+status_class+hour_bucket PK, req_count, bytes, lat)
+- llm_usage_event — per-Engine-call (provider, model, tenant, tokens, cost, latency)
+- llm_usage_hourly — hourly rollup (provider+model+hour_bucket PK, tokens, requests, cost, lat)
+
+### IP State lifecycle
+
+IP request → check ip_rule → ip_state.score += 1
+  score >= THRESHOLD → throttled → block window
+  score >= PERM_THRESHOLD → perm_blocked → alert critical
+  THRESHOLD, PERM_THRESHOLD lưu trong admin_settings.
+
+## 5. API contract — /admin/dashboard/ (AdminGuard)
+
+### Traffic
+- GET /traffic/overview — tổng hợp traffic
+- GET /traffic/events — raw events (paginated, filter by IP/route/status/date)
+- POST /traffic/ingest — ingest nginx log (TrafficIngestDto)
+
+### LLM Usage
+- GET /llm/overview — tổng hợp LLM
+- GET /llm/events — raw LLM events (paginated)
+
+### IP Management
+- GET /ip/rules — danh sách rules
+- POST /ip/rules — tạo rule
+- PATCH /ip/rules/:id — cập nhật
+- DELETE /ip/rules/:id — xóa
+- POST /ip/rules/apply — áp dụng rules, tính lại ip_state + alert
+- GET /ip/states — danh sách IP states
+- GET /ip/states/:ip — chi tiết 1 IP
+- DELETE /ip/states/:ip — unblock IP
+
+### Alerts
+- GET /alerts — danh sách alerts (lọc resolved)
+- PATCH /alerts/:id/resolve — đánh dấu đã xử lý
+
+### Settings
+- GET /settings — đọc settings
+- PATCH /settings/:key — cập nhật 1 setting
+
+## 6. Data flow
+
+### Traffic ingest
+nginx access.log → POST /admin/dashboard/traffic/ingest
+  → parse dòng → traffic_event (raw, giữ lại drill-down)
+  → cập nhật traffic_hourly (PK overwrite theo giờ)
+  → cập nhật ip_state.score
+  → nếu score >= threshold → throttled/perm_blocked + alert
+
+### LLM usage capture
+FE → POST /story/create → BE EngineGatewayService.generate()
+  → gọi Engine /generate → EngineResponse
+  → ghi LlmUsageEvent (provider từ config, tokens ướp lượng, cost ướp lượng)
+  → trả về FE
+
+### DDoS detection
+Ingest batch → mỗi IP trong window:
+  req_count > RATE_LIMIT → throttled
+  req_count > PERM_BLOCK → perm_blocked + alert

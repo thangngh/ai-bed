@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+﻿import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StoryController } from './story.controller';
 import { StoryService } from './story.service';
@@ -7,6 +7,7 @@ import { StorySection } from './entities/story-section.entity';
 import { ChildModule } from '../child/child.module';
 import { MemoryModule } from '../memory/memory.module';
 import { EngineGatewayModule } from '../engine-gateway/engine-gateway.module';
+import { DashboardModule } from '../admin/dashboard/dashboard.module';
 import { QueueService } from '../../common/services/queue.service';
 
 @Module({
@@ -15,6 +16,7 @@ import { QueueService } from '../../common/services/queue.service';
     ChildModule,
     MemoryModule,
     EngineGatewayModule,
+    DashboardModule,
   ],
   controllers: [StoryController],
   providers: [

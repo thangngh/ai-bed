@@ -1,7 +1,15 @@
-import { IsDateString, IsInt, IsMin, IsOptional } from 'class-validator';
+﻿import { IsDateString, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class LlmQueryDto {
-  @IsOptional() @IsDateString() from: string;
-  @IsOptional() @IsDateString() to: string;
-  @IsInt() @Min(0) limit: number = 50;
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  limit?: number;
 }

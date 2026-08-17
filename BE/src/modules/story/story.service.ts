@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
@@ -11,11 +11,14 @@ import { ChildService } from '../child/child.service';
 import { MemoryService } from '../memory/memory.service';
 import { EngineGatewayService } from '../engine-gateway/engine-gateway.service';
 import { QueueService } from '../../common/services/queue.service';
+import { DashboardService } from '../admin/dashboard/services/dashboard.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class StoryService {
   private storyRepo: Repository<Story>;
   private sectionRepo: Repository<StorySection>;
+  private readonly logger = new Logger(StoryService.name);
 
   constructor(
     @InjectDataSource('local') private dataSource: DataSource,
@@ -23,6 +26,8 @@ export class StoryService {
     private readonly memoryService: MemoryService,
     private readonly engineGateway: EngineGatewayService,
     private readonly queueService: QueueService,
+    private readonly dashboardService: DashboardService,
+    private readonly config: ConfigService,
   ) {
     this.storyRepo = this.dataSource.getRepository(Story);
     this.sectionRepo = this.dataSource.getRepository(StorySection);
@@ -61,6 +66,14 @@ export class StoryService {
       })
     );
 
+    // Record LLM usage for the traffic dashboard. Fire-and-forget: a failure
+    // here must never prevent a story from being saved. The BE's view of
+    // provider/model is the configured primary, which may differ from the
+    // Engine's actual fallback chain — tokens are estimated from the request.
+    this.recordLlmUsage(dto, engineResult, tenantId).catch((err) =>
+      this.logger.warn(`LLM usage recording failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
+
     const story = new Story();
     story.storyId = uuidv4();
     story.tenantId = tenantId;
@@ -87,6 +100,34 @@ export class StoryService {
     }
 
     return StoryResponse.from(story, engineResult);
+  }
+
+  private async recordLlmUsage(
+    dto: CreateStoryDto,
+    result: StoryResponse,
+    tenantId: string,
+  ): Promise<void> {
+    const provider = this.config.get<string>('engine.provider', 'openai');
+    const model = this.config.get<string>('engine.model', 'gpt-4o-mini');
+    const promptTokens = this.dashboardService.estimatePromptTokens({
+      childName: dto.child_name,
+      theme: dto.theme,
+      goal: dto.goal,
+      mood: dto.mood,
+      memories: dto.memories?.map((m) => ({ value: m.value })) || [],
+    });
+    // Vietnamese ≈ 1 token / 1.3 words.
+    const completionTokens = Math.max(1, Math.round((result.wordCount || 0) * 1.3));
+
+    await this.dashboardService.recordLlmUsage({
+      provider,
+      model,
+      tenantId,
+      promptTokens,
+      completionTokens,
+      latencyMs: result.latencyMs,
+      isFallback: result.isFallback,
+    });
   }
 
   /**
