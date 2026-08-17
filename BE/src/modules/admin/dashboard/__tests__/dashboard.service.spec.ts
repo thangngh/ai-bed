@@ -317,6 +317,14 @@ describe('DashboardService', () => {
       const result = await service.applyIpRules();
       expect(result.matched).toBe(1);
     });
+
+    it('blocks an IP that has a deny rule but no prior state', async () => {
+      await service.createIpRule({ type: 'ip', pattern: '203.0.113.9', action: 'deny', tier: 'default' } as any);
+      const result = await service.applyIpRules();
+      expect(result.matched).toBe(1);
+      const state = await service.getIpState('203.0.113.9');
+      expect(state!.status).toBe('perm_blocked');
+    });
   });
 
   describe('IP states', () => {
@@ -360,6 +368,15 @@ describe('DashboardService', () => {
       expect(state!.reason).toBeNull();
       const alerts = await ds.getRepository(Alert).find({ where: { ip: '10.0.0.1', resolved: false } });
       expect(alerts).toHaveLength(0);
+    });
+
+    it('clears autoBlocked on unblock so rules can reopen the IP later', async () => {
+      await ds.getRepository(IpState).save(Object.assign(new IpState(), {
+        ip: '10.0.0.1', status: 'perm_blocked', score: 100, tier: 'default', autoBlocked: true, reason: 'ddos',
+      }));
+      await service.unblockIp('10.0.0.1');
+      const state = await service.getIpState('10.0.0.1');
+      expect(state!.autoBlocked).toBe(false);
     });
   });
 
@@ -452,7 +469,26 @@ describe('DashboardService', () => {
       expect(events[0].model).toBe('gpt-4o-mini');
       expect(events[0].promptTokens).toBe(100);
       expect(events[0].completionTokens).toBe(500);
-      expect(events[0].estCostUsd).toBeCloseTo(0.36, 1);
+      expect(events[0].estCostUsd).toBeCloseTo(0.000315, 6);
+    });
+
+    it('prices gpt-4o-mini at published per-million rates', async () => {
+      await service.recordLlmUsage({
+        provider: 'openai', model: 'gpt-4o-mini', tenantId: 't1',
+        promptTokens: 1_000_000, completionTokens: 1_000_000, latencyMs: 100, isFallback: false,
+      });
+      const [event] = await ds.getRepository(LlmUsageEvent).find();
+      // 0.15 + 0.60 per 1M in / 1M out
+      expect(event.estCostUsd).toBeCloseTo(0.75, 4);
+    });
+
+    it('prices a free model at zero', async () => {
+      await service.recordLlmUsage({
+        provider: 'openrouter', model: 'google/gemma-4-26b-a4b-it:free', tenantId: 't1',
+        promptTokens: 5000, completionTokens: 9000, latencyMs: 100, isFallback: false,
+      });
+      const [event] = await ds.getRepository(LlmUsageEvent).find();
+      expect(event.estCostUsd).toBe(0);
     });
 
     it('updates hourly rollup on subsequent calls', async () => {

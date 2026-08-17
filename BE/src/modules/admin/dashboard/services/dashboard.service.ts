@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, EntityManager } from 'typeorm';
+import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, EntityManager, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { TrafficEvent } from '../entities/traffic-event.entity';
 import { TrafficHourly } from '../entities/traffic-hourly.entity';
@@ -17,13 +17,15 @@ import { RangeQueryDto } from '../dto/range-query.dto';
 import { RuleDto } from '../dto/rule.dto';
 import { IpStateDto } from '../dto/ip-state.dto';
 
-/** Cost per 1K tokens, USD. Rough OpenRouter free-tier pricing. */
+/** USD per 1,000,000 tokens. Published list prices; free tiers are zero. */
 const MODEL_COSTS: Record<string, { prompt: number; completion: number }> = {
   'gpt-4o-mini': { prompt: 0.15, completion: 0.6 },
   'gpt-4o': { prompt: 2.5, completion: 10.0 },
   'gemini-2.0-flash': { prompt: 0.035, completion: 0.35 },
   'google/gemma-4-26b-a4b-it:free': { prompt: 0, completion: 0 },
 };
+
+const TOKENS_PER_COST_UNIT = 1_000_000;
 
 /** Running totals accumulated over traffic_hourly rows inside trafficOverview. */
 interface TrafficAgg {
@@ -235,12 +237,13 @@ export class DashboardService {
         .createQueryBuilder()
         .update(TrafficHourly)
         .set({
-          reqCount: () => `req_count + 1`,
-          bytesIn: () => `bytes_in + ${event.bytesIn || 0}`,
-          bytesOut: () => `bytes_out + ${event.bytesOut || 0}`,
+          reqCount: () => 'req_count + 1',
+          bytesIn: () => `bytes_in + :addIn`,
+          bytesOut: () => `bytes_out + :addOut`,
           latAvgMs: existing.reqCount > 0 ? (existing.latAvgMs * existing.reqCount + lat) / (existing.reqCount + 1) : lat,
           latP95Ms: Math.max(existing.latP95Ms, lat),
         })
+        .setParameters({ addIn: event.bytesIn || 0, addOut: event.bytesOut || 0 })
         .where({ ip: event.ip, hourBucket, route: event.route, statusClass })
         .execute();
     } else {
@@ -331,14 +334,31 @@ export class DashboardService {
     const enabledRules = await this.ipRuleRepo.find({ where: { enabled: true }, order: { createdAt: 'ASC' } });
     const states = await this.ipStateRepo.find({ order: { updatedAt: 'DESC' } });
 
+    // A deny rule naming a literal IP must take effect even if that IP has
+    // never been seen in traffic yet, so seed a state for it.
+    const known = new Set(states.map((s) => s.ip));
+    const seeded: IpState[] = [];
+    for (const rule of enabledRules) {
+      if (rule.action !== 'deny' || rule.type !== 'ip' || known.has(rule.pattern)) continue;
+      seeded.push(Object.assign(new IpState(), {
+        ip: rule.pattern, status: 'ok' as IpStatus, tier: rule.tier, score: 0, autoBlocked: false,
+      }));
+      known.add(rule.pattern);
+    }
+    if (seeded.length) await this.ipStateRepo.save(seeded);
+
     let matched = 0;
     let alertsCreated = 0;
 
-    for (const state of states) {
-      const denyRule = enabledRules.find((rule) => rule.action === 'deny' && this.ipMatchesRule(state.ip, rule.type, rule.pattern));
+    for (const state of [...states, ...seeded]) {
+      const denyRule = enabledRules.find(
+        (rule) => rule.action === 'deny' && this.ipMatchesRule(state.ip, rule.type, rule.pattern),
+      );
 
       if (denyRule && state.status !== 'perm_blocked') {
-        await this.ipStateRepo.update(state.ip, { status: 'perm_blocked' as IpStatus, blockedUntil: null });
+        await this.ipStateRepo.update(state.ip, {
+          status: 'perm_blocked' as IpStatus, blockedUntil: null, updatedAt: this.nowIso(),
+        });
         matched++;
         const existing = await this.alertRepo.findOne({ where: { ip: state.ip, type: 'rule_block', resolved: false } });
         if (!existing) {
@@ -347,8 +367,12 @@ export class DashboardService {
         }
       }
 
+      // Only rule-driven blocks are lifted here; an auto (DDoS) block stands
+      // until an admin unblocks it explicitly.
       if (!denyRule && state.status === 'perm_blocked' && !state.autoBlocked) {
-        await this.ipStateRepo.update(state.ip, { status: 'ok' as IpStatus, score: 0, blockedUntil: null });
+        await this.ipStateRepo.update(state.ip, {
+          status: 'ok' as IpStatus, score: 0, blockedUntil: null, updatedAt: this.nowIso(),
+        });
       }
     }
 
@@ -389,8 +413,14 @@ export class DashboardService {
 
   async unblockIp(ip: string): Promise<void> {
     const now = this.nowIso();
-    await this.ipStateRepo.update(ip, { status: 'ok', score: 0, blockedUntil: null, reason: null });
-    await this.alertRepo.update({ ip, resolved: false }, { resolved: true, resolvedAt: now });
+    await this.ipStateRepo.update(ip, {
+      status: 'ok', score: 0, blockedUntil: null, reason: null, autoBlocked: false, updatedAt: now,
+    });
+    // Only the block-related alerts; unrelated open alerts for this IP stand.
+    await this.alertRepo.update(
+      { ip, resolved: false, type: In(['ddos_throttled', 'ddos_permanent', 'rule_block']) },
+      { resolved: true, resolvedAt: now },
+    );
   }
   /**
    * The single place that decides an IP's status during ingest. Escalation is
@@ -462,11 +492,16 @@ export class DashboardService {
         .createQueryBuilder()
         .update(LlmUsageHourly)
         .set({
-          promptTokens: () => `prompt_tokens + ${params.promptTokens}`,
-          completionTokens: () => `completion_tokens + ${params.completionTokens}`,
-          requests: () => `requests + 1`,
-          estCostUsd: () => `est_cost_usd + ${estCostUsd}`,
+          promptTokens: () => `prompt_tokens + :addPrompt`,
+          completionTokens: () => `completion_tokens + :addCompletion`,
+          requests: () => 'requests + 1',
+          estCostUsd: () => `est_cost_usd + :addCost`,
           latAvgMs: (existing.requests * existing.latAvgMs + params.latencyMs) / (existing.requests + 1),
+        })
+        .setParameters({
+          addPrompt: params.promptTokens,
+          addCompletion: params.completionTokens,
+          addCost: estCostUsd,
         })
         .where({ provider: params.provider, model: params.model, hourBucket })
         .execute();
@@ -485,9 +520,8 @@ export class DashboardService {
   }
 
   private estimateCost(provider: string, model: string, promptTokens: number, completionTokens: number): number {
-    const key = model.toLowerCase();
-    const rates = MODEL_COSTS[key] || MODEL_COSTS[provider.toLowerCase()] || { prompt: 0, completion: 0 };
-    return (promptTokens / 1000) * rates.prompt + (completionTokens / 1000) * rates.completion;
+    const rates = MODEL_COSTS[model.toLowerCase()] ?? MODEL_COSTS[provider.toLowerCase()] ?? { prompt: 0, completion: 0 };
+    return (promptTokens * rates.prompt + completionTokens * rates.completion) / TOKENS_PER_COST_UNIT;
   }
 
   async llmOverview(query: LlmQueryDto): Promise<LlmOverview> {
