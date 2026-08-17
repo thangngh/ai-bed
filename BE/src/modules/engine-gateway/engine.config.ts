@@ -1,4 +1,4 @@
-﻿import { registerAs } from '@nestjs/config';
+import { registerAs } from '@nestjs/config';
 
 export default registerAs('engine', () => ({
   baseUrl: process.env.ENGINE_URL || 'http://localhost:8000',

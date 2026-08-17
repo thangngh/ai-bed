@@ -1,4 +1,4 @@
-﻿import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Tenant } from './modules/tenant/entities/tenant.entity';
@@ -36,6 +36,9 @@ import rateLimitConfig from './config/rate-limit.config';
 
 @Module({
   imports: [
+    // `load` was empty, so every `config.get('rateLimit...')` / `('memory...')`
+    // silently fell back to the code default and the matching .env entries did
+    // nothing. (`engine.*` is registered by EngineGatewayModule.forFeature.)
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -78,6 +81,8 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(TenantMiddleware, RateLimiterMiddleware)
+      // /admin has no tenant. Without this the middleware would create one
+      // anonymous tenant row per admin request.
       .exclude('health', 'admin/(.*)')
       .forRoutes('*');
   }

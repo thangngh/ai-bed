@@ -1,4 +1,4 @@
-﻿import { IsInt, IsOptional, Min } from 'class-validator';
+import { IsInt, IsOptional, Min } from 'class-validator';
 import { AlertSeverity } from '../entities/alert.entity';
 
 export class AlertDto {

@@ -1,4 +1,4 @@
-﻿import { Test } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -78,7 +78,7 @@ describe('StoryService', () => {
     story.tenantId = 't1';
     story.title = 'Test Story';
     story.content = '{}';
-    story.theme = 'Äá»™ng váº­t';
+    story.theme = 'Động vật';
     await storyRepo.save(story);
 
     const section = new StorySection();

@@ -1,4 +1,4 @@
-﻿import { IpStatus } from '../entities/ip-state.entity';
+import { IpStatus } from '../entities/ip-state.entity';
 
 export class IpStateDto {
   ip!: string;

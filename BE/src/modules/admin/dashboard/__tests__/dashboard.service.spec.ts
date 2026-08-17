@@ -1,4 +1,4 @@
-﻿import { DataSource } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { DashboardService } from '../services/dashboard.service';
 import { TrafficEvent } from '../entities/traffic-event.entity';
 import { TrafficHourly } from '../entities/traffic-hourly.entity';
