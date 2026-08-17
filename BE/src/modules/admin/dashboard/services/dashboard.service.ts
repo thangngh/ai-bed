@@ -64,14 +64,14 @@ export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
 
   constructor(
-    @InjectRepository(TrafficEvent) private readonly trafficEventRepo: Repository<TrafficEvent>,
-    @InjectRepository(TrafficHourly) private readonly trafficHourlyRepo: Repository<TrafficHourly>,
-    @InjectRepository(LlmUsageEvent) private readonly llmEventRepo: Repository<LlmUsageEvent>,
-    @InjectRepository(LlmUsageHourly) private readonly llmHourlyRepo: Repository<LlmUsageHourly>,
-    @InjectRepository(IpRule) private readonly ipRuleRepo: Repository<IpRule>,
-    @InjectRepository(IpState) private readonly ipStateRepo: Repository<IpState>,
-    @InjectRepository(Alert) private readonly alertRepo: Repository<Alert>,
-    @InjectRepository(AdminSetting) private readonly settingRepo: Repository<AdminSetting>,
+    @InjectRepository(TrafficEvent, 'core') private readonly trafficEventRepo: Repository<TrafficEvent>,
+    @InjectRepository(TrafficHourly, 'core') private readonly trafficHourlyRepo: Repository<TrafficHourly>,
+    @InjectRepository(LlmUsageEvent, 'core') private readonly llmEventRepo: Repository<LlmUsageEvent>,
+    @InjectRepository(LlmUsageHourly, 'core') private readonly llmHourlyRepo: Repository<LlmUsageHourly>,
+    @InjectRepository(IpRule, 'core') private readonly ipRuleRepo: Repository<IpRule>,
+    @InjectRepository(IpState, 'core') private readonly ipStateRepo: Repository<IpState>,
+    @InjectRepository(Alert, 'core') private readonly alertRepo: Repository<Alert>,
+    @InjectRepository(AdminSetting, 'core') private readonly settingRepo: Repository<AdminSetting>,
     private readonly config: ConfigService,
   ) {}
 
