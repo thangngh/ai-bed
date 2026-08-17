@@ -123,10 +123,26 @@ export class DashboardService {
     return {
       ...agg,
       unique_ips: uniqueIps,
-      hourly: rows.map((r) => ({ hour: r.hourBucket, requests: r.reqCount, bytes_out: r.bytesOut, lat_p95_ms: Math.round(r.latP95Ms) })),
+      hourly: this.rollupHourly(rows),
       status_dist: statusDist.map((r) => ({ status_class: r.status_class, requests: Number(r.requests) })),
       top_routes: topRoutes.map((r) => ({ route: r.route, requests: Number(r.requests), bytes_out: Number(r.bytes_out) })),
     };
+  }
+
+  /**
+   * traffic_hourly is keyed by ip+route+status_class+hour, so a single hour has
+   * many rows. The trend chart wants one point per hour.
+   */
+  private rollupHourly(rows: TrafficHourly[]): TrafficOverview['hourly'] {
+    const byHour = new Map<string, { hour: string; requests: number; bytes_out: number; lat_p95_ms: number }>();
+    for (const r of rows) {
+      const cur = byHour.get(r.hourBucket) ?? { hour: r.hourBucket, requests: 0, bytes_out: 0, lat_p95_ms: 0 };
+      cur.requests += r.reqCount;
+      cur.bytes_out += r.bytesOut;
+      cur.lat_p95_ms = Math.max(cur.lat_p95_ms, Math.round(r.latP95Ms));
+      byHour.set(r.hourBucket, cur);
+    }
+    return [...byHour.values()].sort((a, b) => a.hour.localeCompare(b.hour));
   }
 
   async trafficEvents(query: TrafficQueryDto & { ip?: string; route?: string; status?: number; limit?: number; offset?: number }): Promise<{ items: TrafficEvent[]; total: number; limit: number; offset: number }> {

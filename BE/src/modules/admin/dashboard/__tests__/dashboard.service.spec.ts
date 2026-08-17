@@ -99,11 +99,15 @@ describe('DashboardService', () => {
       expect(result.error_4xx).toBe(0);
     });
 
-    it('returns hourly trend sorted by hour', async () => {
+    it('returns one entry per hour, summed across IPs', async () => {
       const result = await service.trafficOverview({} as any);
       expect(result.hourly).toHaveLength(2);
       expect(result.hourly[0].hour).toBe('2026-08-14T10');
+      expect(result.hourly[0].requests).toBe(102);
+      expect(result.hourly[0].bytes_out).toBe(120500);
+      expect(result.hourly[0].lat_p95_ms).toBe(5000);
       expect(result.hourly[1].hour).toBe('2026-08-14T11');
+      expect(result.hourly[1].requests).toBe(50);
     });
 
     it('returns status distribution grouped by class', async () => {
