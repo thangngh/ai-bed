@@ -91,7 +91,7 @@ Fixes **F18, F19, F20**. Pure hygiene, done first so later diffs are readable.
 - Consumes: nothing.
 - Produces: nothing. Behavior-neutral.
 
-- [ ] **Step 1: Fix the mojibake literal**
+- [x] **Step 1: Fix the mojibake literal**
 
 In `BE/src/modules/story/__tests__/story.service.spec.ts`, replace the corrupted theme:
 
@@ -99,7 +99,7 @@ In `BE/src/modules/story/__tests__/story.service.spec.ts`, replace the corrupted
     story.theme = 'Động vật';
 ```
 
-- [ ] **Step 2: Restore the two deleted comments in `app.module.ts`**
+- [x] **Step 2: Restore the two deleted comments in `app.module.ts`**
 
 Above `ConfigModule.forRoot({` (was line 38):
 
@@ -116,7 +116,7 @@ Above `.exclude('health', 'admin/(.*)')` (was line 80):
       // anonymous tenant row per admin request.
 ```
 
-- [ ] **Step 3: Strip the BOM from all 16 files**
+- [x] **Step 3: Strip the BOM from all 16 files**
 
 ```bash
 cd BE
@@ -137,7 +137,7 @@ for f in src/app.module.ts src/modules/admin/admin.module.ts \
 done
 ```
 
-- [ ] **Step 4: Verify no BOM and no mojibake remain**
+- [x] **Step 4: Verify no BOM and no mojibake remain**
 
 ```bash
 cd BE
@@ -146,12 +146,12 @@ grep -rn 'Ã\|á»\|áº' src/ ; echo "mojibake check done (no hits above = clea
 ```
 Expected: both lists empty.
 
-- [ ] **Step 5: Confirm story tests still pass**
+- [x] **Step 5: Confirm story tests still pass**
 
 Run: `cd BE && npx jest story`
 Expected: PASS (unchanged count). `npx jest dashboard` still fails to compile — that is Task 2.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add BE/src
@@ -171,12 +171,12 @@ Fixes **F1, F2**. Smallest change that turns a red compile into runnable tests.
 - Consumes: `TrafficHourly` entity fields `reqCount`, `bytesIn`, `bytesOut`, `statusClass`, `latP95Ms`.
 - Produces: new non-exported interface `TrafficAgg { requests: number; bytes_in: number; bytes_out: number; error_5xx: number; error_4xx: number; p95_latency_ms: number }`, used only inside `trafficOverview`. The public `TrafficOverview` interface is unchanged.
 
-- [ ] **Step 1: Run the failing build to capture the baseline**
+- [x] **Step 1: Run the failing build to capture the baseline**
 
 Run: `cd BE && npx tsc --noEmit -p tsconfig.json 2>&1 | grep dashboard`
 Expected: 4 errors — TS2740 at `:107`, TS2339 at `:84` and `:85`, TS18047 at `:299`.
 
-- [ ] **Step 2: Add the aggregate interface**
+- [x] **Step 2: Add the aggregate interface**
 
 Insert directly above `export interface TrafficOverview` (line 28):
 
@@ -192,7 +192,7 @@ interface TrafficAgg {
 }
 ```
 
-- [ ] **Step 3: Retype the reduce seed**
+- [x] **Step 3: Retype the reduce seed**
 
 Replace lines 73-86 with:
 
@@ -214,7 +214,7 @@ Replace lines 73-86 with:
       totalReqs > 0 ? Math.round(rows.reduce((s, r) => s + r.latP95Ms * r.reqCount, 0) / totalReqs) : 0;
 ```
 
-- [ ] **Step 4: Narrow `res.affected` properly**
+- [x] **Step 4: Narrow `res.affected` properly**
 
 Replace line 299:
 
@@ -222,17 +222,17 @@ Replace line 299:
     return (res.affected ?? 0) > 0;
 ```
 
-- [ ] **Step 5: Verify the build is clean**
+- [x] **Step 5: Verify the build is clean**
 
 Run: `cd BE && npx tsc --noEmit -p tsconfig.json 2>&1 | grep dashboard`
 Expected: no output.
 
-- [ ] **Step 6: Run the suite and record which tests now fail**
+- [x] **Step 6: Run the suite and record which tests now fail**
 
 Run: `cd BE && npx jest dashboard`
 Expected: suite executes (44 tests collected). Failures are expected at this point — F3 (`status_dist`, `top_routes`, `groups by provider`), F7 (`avg_latency_ms`). Record them; later tasks fix them.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard/services/dashboard.service.ts
@@ -253,7 +253,7 @@ Fixes **F3, F6, F15**.
 - Consumes: `TrafficAgg` from Task 2.
 - Produces: `hourlyWhere(from?, to?)` now returns `Record<string, unknown>` (`{}` instead of `undefined` when unfiltered). Callers may pass the result to `.where()` unconditionally.
 
-- [ ] **Step 1: Write the failing test for distinct IPs**
+- [x] **Step 1: Write the failing test for distinct IPs**
 
 Add inside `describe('trafficOverview')` in the spec, after the existing `aggregates total...` test:
 
@@ -268,12 +268,12 @@ Add inside `describe('trafficOverview')` in the spec, after the existing `aggreg
     });
 ```
 
-- [ ] **Step 2: Run it to confirm it fails**
+- [x] **Step 2: Run it to confirm it fails**
 
 Run: `cd BE && npx jest dashboard -t 'counts distinct IPs'`
 Expected: FAIL — `Expected: 3, Received: 5`.
 
-- [ ] **Step 3: Replace the body of `trafficOverview` from the ipWhere block to the return**
+- [x] **Step 3: Replace the body of `trafficOverview` from the ipWhere block to the return**
 
 Replace lines 88-113 with:
 
@@ -313,7 +313,7 @@ Replace lines 88-113 with:
 
 Note: `hourly` still emits one entry per `traffic_hourly` row, so two IPs in the same hour produce two entries. Task 5 collapses that.
 
-- [ ] **Step 4: Apply the same alias fix to `llmOverview`**
+- [x] **Step 4: Apply the same alias fix to `llmOverview`**
 
 Replace lines 463-481 (`byProvider` and `byModel`) with:
 
@@ -341,7 +341,7 @@ Replace lines 463-481 (`byProvider` and `byModel`) with:
       .getRawMany<{ provider: string; model: string; calls: string; prompt_tokens: string; completion_tokens: string; est_cost_usd: string }>();
 ```
 
-- [ ] **Step 5: Make `hourlyWhere` return `{}` instead of `undefined`**
+- [x] **Step 5: Make `hourlyWhere` return `{}` instead of `undefined`**
 
 Replace lines 559-564:
 
@@ -354,7 +354,7 @@ Replace lines 559-564:
   }
 ```
 
-- [ ] **Step 6: Add the `eventWhere` helper used in Step 3**
+- [x] **Step 6: Add the `eventWhere` helper used in Step 3**
 
 Insert directly below `hourlyWhere`:
 
@@ -374,12 +374,12 @@ Insert directly below `hourlyWhere`:
   }
 ```
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 Run: `cd BE && npx jest dashboard`
 Expected: `counts distinct IPs`, `returns status distribution grouped by class`, `returns top routes by request count`, `groups by provider`, `groups by provider+model` all PASS. `avg_latency_ms` still fails (Task 7). Range-filter tests may still fail (Task 4).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard
@@ -401,7 +401,7 @@ Fixes **F4, F5, F9**. This is the highest-value correctness task: today every `t
 - Consumes: `eventWhere(from?, to?)` and `hourlyWhere(from?, to?)` from Task 3.
 - Produces: `private nowIso(): string` returning `YYYY-MM-DDTHH:mm:ss`. All timestamp writes in the service go through it or through `parseNginxTime`, both of which now emit the `T` form.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `describe('trafficEvents')`:
 
@@ -432,7 +432,7 @@ Add to `describe('ingestTraffic')`:
     });
 ```
 
-- [ ] **Step 2: Run to confirm they fail**
+- [x] **Step 2: Run to confirm they fail**
 
 Run: `cd BE && npx jest dashboard -t 'filters by from and to inclusively'`
 Expected: FAIL — `Expected: 2, Received: 3` (the `to` bound is ignored).
@@ -440,7 +440,7 @@ Expected: FAIL — `Expected: 2, Received: 3` (the `to` bound is ignored).
 Run: `cd BE && npx jest dashboard -t 'writes T-separated'`
 Expected: FAIL — received `'2026-08-14 10:30:00'`.
 
-- [ ] **Step 3: Add the canonical timestamp helper**
+- [x] **Step 3: Add the canonical timestamp helper**
 
 Insert directly above `private parseRange` (line 555):
 
@@ -451,7 +451,7 @@ Insert directly above `private parseRange` (line 555):
   }
 ```
 
-- [ ] **Step 4: Make `parseNginxTime` emit the canonical form**
+- [x] **Step 4: Make `parseNginxTime` emit the canonical form**
 
 Replace lines 256-262:
 
@@ -465,14 +465,14 @@ Replace lines 256-262:
   }
 ```
 
-- [ ] **Step 5: Route every other timestamp write through `nowIso()`**
+- [x] **Step 5: Route every other timestamp write through `nowIso()`**
 
 - Line 363 (`unblockIp`): replace `const now = new Date().toISOString().replace('T', ' ').slice(0, 19);` with `const now = this.nowIso();`
 - Line 395 (`recordLlmUsage`): replace `const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);` with `const ts = this.nowIso();`
 - Line 529 (`resolveAlert`): replace the inline expression with `this.nowIso()`.
 - Line 544 (`setSetting`): replace the inline expression with `this.nowIso()`.
 
-- [ ] **Step 6: Fix `trafficEvents` range filtering**
+- [x] **Step 6: Fix `trafficEvents` range filtering**
 
 Replace lines 117-123:
 
@@ -484,7 +484,7 @@ Replace lines 117-123:
     if (query.status) where.status = query.status;
 ```
 
-- [ ] **Step 7: Fix `llmOverview` and `llmEvents` range filtering**
+- [x] **Step 7: Fix `llmOverview` and `llmEvents` range filtering**
 
 Replace lines 445-448 in `llmOverview`:
 
@@ -502,7 +502,7 @@ Replace lines 502-507 in `llmEvents`:
     if (query.model) where.model = query.model;
 ```
 
-- [ ] **Step 8: Record the decision in the spec**
+- [x] **Step 8: Record the decision in the spec**
 
 Append to `docs/admin/01-traffic-dashboard-spec.md` after §4:
 
@@ -523,12 +523,12 @@ tới `:59:59` của giờ đó để hai mức granularity khớp nhau.
 Không dùng dạng ngăn cách bằng dấu cách (`'2026-08-14 10:30:00'`) ở bất kỳ đâu.
 ```
 
-- [ ] **Step 9: Run the tests**
+- [x] **Step 9: Run the tests**
 
 Run: `cd BE && npx jest dashboard`
 Expected: all three new tests PASS, plus `filters by date range` in both `trafficOverview` and `LLM overview`. Only `avg_latency_ms` (Task 7) and any ordering flake (Task 7) should remain red.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard docs/admin/01-traffic-dashboard-spec.md
@@ -549,7 +549,7 @@ Fixes the `hourly` shape exposed by Task 3's note. `traffic_hourly` is keyed by 
 - Consumes: `rows: TrafficHourly[]` already loaded in `trafficOverview`.
 - Produces: `hourly` is now one entry per distinct `hour_bucket`, ascending; `requests` and `bytes_out` summed, `lat_p95_ms` = max across the hour.
 
-- [ ] **Step 1: Tighten the existing test**
+- [x] **Step 1: Tighten the existing test**
 
 Replace the body of `it('returns hourly trend sorted by hour', ...)` (spec lines 93-98) with:
 
@@ -566,12 +566,12 @@ Replace the body of `it('returns hourly trend sorted by hour', ...)` (spec lines
     });
 ```
 
-- [ ] **Step 2: Run to confirm it fails**
+- [x] **Step 2: Run to confirm it fails**
 
 Run: `cd BE && npx jest dashboard -t 'one entry per hour'`
 Expected: FAIL — `Expected length: 2, Received length: 3`.
 
-- [ ] **Step 3: Aggregate the rows by bucket**
+- [x] **Step 3: Aggregate the rows by bucket**
 
 In `trafficOverview`, replace the `hourly:` line in the return object with `hourly: this.rollupHourly(rows),` and add this private method directly below `trafficOverview`:
 
@@ -593,12 +593,12 @@ In `trafficOverview`, replace the `hourly:` line in the return object with `hour
   }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd BE && npx jest dashboard -t 'one entry per hour'`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard
@@ -624,7 +624,7 @@ Fixes **F10, F11**, and the surprising `IpRule.enabled` default. This is the lar
   - `ingestTraffic` return type is unchanged: `{ ingested: number; skipped: number; alerts_created: number }`, but `skipped` now means **unparseable lines only**.
   - New setting key `ddos.window_hours` (default `'1'`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add a new `describe` block after `describe('DDoS detection during ingest')`:
 
@@ -676,12 +676,12 @@ Add a new `describe` block after `describe('DDoS detection during ingest')`:
   });
 ```
 
-- [ ] **Step 2: Run to confirm they fail**
+- [x] **Step 2: Run to confirm they fail**
 
 Run: `cd BE && npx jest dashboard -t 'DDoS counting under a flood'`
 Expected: FAIL — first test gets `ingested: 1, skipped: 29`; third test gets `status: 'throttled'`.
 
-- [ ] **Step 3: Replace `ingestTraffic`**
+- [x] **Step 3: Replace `ingestTraffic`**
 
 Replace lines 130-196 entirely:
 
@@ -744,7 +744,7 @@ Replace lines 130-196 entirely:
   }
 ```
 
-- [ ] **Step 4: Replace `updateIpScore` with `evaluateIp`**
+- [x] **Step 4: Replace `updateIpScore` with `evaluateIp`**
 
 Replace lines 367-381:
 
@@ -787,7 +787,7 @@ Replace lines 367-381:
   }
 ```
 
-- [ ] **Step 5: Give `IpRule.enabled` a sane default**
+- [x] **Step 5: Give `IpRule.enabled` a sane default**
 
 In `BE/src/modules/admin/dashboard/entities/ip-rule.entity.ts`, a rule created through the API is always enabled; a column default of `false` contradicts that. Change:
 
@@ -796,7 +796,7 @@ In `BE/src/modules/admin/dashboard/entities/ip-rule.entity.ts`, a rule created t
   enabled: boolean;
 ```
 
-- [ ] **Step 6: Update the spec's DDoS section**
+- [x] **Step 6: Update the spec's DDoS section**
 
 Replace the `### Traffic ingest` and `### DDoS detection` blocks in §6 of `docs/admin/01-traffic-dashboard-spec.md`:
 
@@ -823,12 +823,12 @@ chiều: ok → throttled → perm_blocked, không bao giờ tự hạ cấp.
 Chỉ hạ cấp qua `DELETE /ip/states/:ip` (unblock) hoặc `POST /ip/rules/apply`.
 ```
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 Run: `cd BE && npx jest dashboard`
 Expected: the three new flood tests PASS. `updates ip_state scores during ingest` and `creates a throttled alert when IP exceeds threshold` must still PASS — if `skipped` assertions changed meaning, adjust those assertions to the new semantics and note it in the commit.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard docs/admin/01-traffic-dashboard-spec.md
@@ -849,7 +849,7 @@ Fixes **F7, F8**. These are test defects, not implementation defects — fixing 
 - Consumes: nothing new.
 - Produces: `listAlerts` orders by `createdAt DESC, id DESC` — deterministic for ties.
 
-- [ ] **Step 1: Correct the average-latency expectation**
+- [x] **Step 1: Correct the average-latency expectation**
 
 AVG(12000, 10000, 8000, 5000) = 8750. Replace line 370:
 
@@ -857,7 +857,7 @@ AVG(12000, 10000, 8000, 5000) = 8750. Replace line 370:
       expect(result.avg_latency_ms).toBe(8750);
 ```
 
-- [ ] **Step 2: Make the alert-ordering fixture unambiguous**
+- [x] **Step 2: Make the alert-ordering fixture unambiguous**
 
 Replace the `beforeEach` fixture in `describe('Alerts')` (lines 400-405) so the two unresolved alerts have distinct timestamps:
 
@@ -869,7 +869,7 @@ Replace the `beforeEach` fixture in `describe('Alerts')` (lines 400-405) so the 
       ]);
 ```
 
-- [ ] **Step 3: Add a deterministic tiebreak to `listAlerts`**
+- [x] **Step 3: Add a deterministic tiebreak to `listAlerts`**
 
 In `listAlerts`, replace the `order` option:
 
@@ -879,12 +879,12 @@ In `listAlerts`, replace the `order` option:
     });
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd BE && npx jest dashboard -t 'LLM overview'` then `cd BE && npx jest dashboard -t 'Alerts'`
 Expected: both PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard
@@ -905,7 +905,7 @@ Fixes **F12, F13, F14, F16**.
 - Consumes: `nowIso()`, `severityRank()` from earlier tasks.
 - Produces: `MODEL_COSTS` values are **USD per 1M tokens**; `estimateCost` divides by `1_000_000`. `applyIpRules` return type is unchanged.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `describe('LLM usage')`:
 
@@ -955,12 +955,12 @@ Add to `describe('IP states')`:
     });
 ```
 
-- [ ] **Step 2: Run to confirm they fail**
+- [x] **Step 2: Run to confirm they fail**
 
 Run: `cd BE && npx jest dashboard -t 'per-million'`
 Expected: FAIL — received `750` (1000× too high).
 
-- [ ] **Step 3: Fix the cost table and the divisor**
+- [x] **Step 3: Fix the cost table and the divisor**
 
 Replace lines 20-26:
 
@@ -985,7 +985,7 @@ Replace `estimateCost` (lines 438-442):
   }
 ```
 
-- [ ] **Step 4: Realign the existing cost assertion**
+- [x] **Step 4: Realign the existing cost assertion**
 
 The old test at spec:336 expected `0.36` under the broken 1K divisor. Under per-1M pricing, 100 prompt + 500 completion = `(100*0.15 + 500*0.6)/1e6` = `0.000315`. Replace that line:
 
@@ -995,7 +995,7 @@ The old test at spec:336 expected `0.36` under the broken 1K divisor. Under per-
 
 The `LLM overview` fixtures write `estCostUsd` directly and are unaffected.
 
-- [ ] **Step 5: Make `applyIpRules` cover ruled IPs with no state**
+- [x] **Step 5: Make `applyIpRules` cover ruled IPs with no state**
 
 Replace lines 302-328:
 
@@ -1050,7 +1050,7 @@ Replace lines 302-328:
   }
 ```
 
-- [ ] **Step 6: Clear `autoBlocked` on unblock**
+- [x] **Step 6: Clear `autoBlocked` on unblock**
 
 Replace lines 362-366:
 
@@ -1074,7 +1074,7 @@ Add `In` to the TypeORM import on line 3:
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, In } from 'typeorm';
 ```
 
-- [ ] **Step 7: Parameterize the interpolated update expressions**
+- [x] **Step 7: Parameterize the interpolated update expressions**
 
 In `upsertHourly`, replace the `.set({...})` block (lines 209-215):
 
@@ -1106,12 +1106,12 @@ In `recordLlmUsage`, replace the `.set({...})` block (lines 415-421):
         })
 ```
 
-- [ ] **Step 8: Run the full suite**
+- [x] **Step 8: Run the full suite**
 
 Run: `cd BE && npx jest dashboard`
 Expected: **all tests PASS**. If `setParameters` interacts badly with the SQLite driver on the `.set(() => ...)` path, revert Step 7 only and record F16 as accepted-with-rationale in Task 10 — the inputs are regex-captured digits, so the exposure is nil.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard
@@ -1134,12 +1134,12 @@ git commit -m "fix(dashboard): per-million cost model, rule coverage for unseen 
 - Consumes: nothing.
 - Produces: `from`/`to` validated by `@Matches(HOUR_BUCKET_RE)` where `HOUR_BUCKET_RE = /^\d{4}-\d{2}-\d{2}T\d{2}$/`, exported from `range-query.dto.ts`.
 
-- [ ] **Step 1: Confirm the global ValidationPipe is actually on**
+- [x] **Step 1: Confirm the global ValidationPipe is actually on**
 
 Run: `cd BE && grep -n "ValidationPipe" src/main.ts`
 If there is no global pipe, the DTO decorators never run — in that case still do Steps 2-5 (they are correct regardless), but note in the commit body that validation is currently inert.
 
-- [ ] **Step 2: Write the failing DTO test**
+- [x] **Step 2: Write the failing DTO test**
 
 Create `BE/src/modules/admin/dashboard/__tests__/dashboard.dto.spec.ts`:
 
@@ -1171,12 +1171,12 @@ describe('RangeQueryDto', () => {
 });
 ```
 
-- [ ] **Step 3: Run to confirm it fails**
+- [x] **Step 3: Run to confirm it fails**
 
 Run: `cd BE && npx jest dashboard.dto`
 Expected: FAIL on `accepts an hour bucket` — `@IsDateString` rejects `'2026-08-14T10'`.
 
-- [ ] **Step 4: Swap the validators**
+- [x] **Step 4: Swap the validators**
 
 Replace `BE/src/modules/admin/dashboard/dto/range-query.dto.ts` in full:
 
@@ -1247,7 +1247,7 @@ export class TrafficQueryDto extends RangeQueryDto {
 
 `logPath` belonged to ingest, not to a query; it already lives on `TrafficIngestDto`.
 
-- [ ] **Step 5: Validate the ingest DTO too**
+- [x] **Step 5: Validate the ingest DTO too**
 
 Replace `BE/src/modules/admin/dashboard/dto/traffic-ingest.dto.ts`:
 
@@ -1265,12 +1265,12 @@ export class TrafficIngestDto {
 }
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `cd BE && npx jest dashboard`
 Expected: all PASS, including the 4 new DTO tests. The controller imports `TrafficQueryDto` and `LlmQueryDto` — confirm `npx tsc --noEmit` is clean, since `logPath` was removed from `TrafficQueryDto`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add BE/src/modules/admin/dashboard
@@ -1289,12 +1289,12 @@ git commit -m "fix(dashboard): validate range params as hour buckets and clean u
 - Consumes: everything above.
 - Produces: the branch is ready for FE work (Plan 2).
 
-- [ ] **Step 1: Full BE suite and typecheck**
+- [x] **Step 1: Full BE suite and typecheck**
 
 Run: `cd BE && npx tsc --noEmit && npx jest`
 Expected: typecheck clean; every suite passes. Investigate any suite this branch broke — `story`, `admin`, and `engine-gateway` all touch changed files.
 
-- [ ] **Step 2: Remove the stale test artifact**
+- [x] **Step 2: Remove the stale test artifact**
 
 `test_output.txt` at the repo root is a captured Jest run from before `getSettings` existed. It is misleading and untracked.
 
@@ -1302,7 +1302,7 @@ Expected: typecheck clean; every suite passes. Investigate any suite this branch
 rm test_output.txt
 ```
 
-- [ ] **Step 3: Record what was deliberately not fixed**
+- [x] **Step 3: Record what was deliberately not fixed**
 
 Append §7 to `docs/admin/01-traffic-dashboard-spec.md`:
 
@@ -1320,7 +1320,7 @@ Append §7 to `docs/admin/01-traffic-dashboard-spec.md`:
 | 7 | `provider`/`model` ghi vào `llm_usage_event` là giá trị **cấu hình**, không phải provider thực sự đã trả lời | Engine chưa báo ngược provider của fallback chain. Đã ghi chú trong `engine.config.ts`. |
 ```
 
-- [ ] **Step 4: Update the spec status line**
+- [x] **Step 4: Update the spec status line**
 
 Change line 5 of `docs/admin/01-traffic-dashboard-spec.md`:
 
@@ -1328,7 +1328,7 @@ Change line 5 of `docs/admin/01-traffic-dashboard-spec.md`:
 > **Trạng thái:** BE hoàn tất & xanh test — FE chưa làm
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/admin/01-traffic-dashboard-spec.md
