@@ -15,9 +15,10 @@ describe('StoryService', () => {
   let service: StoryService;
   let dataSource: DataSource;
   let storyRepo: Repository<Story>;
+  let module: import('@nestjs/testing').TestingModule;
 
   beforeAll(async () => {
-    const module = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         StoryService,
         {
@@ -100,5 +101,46 @@ describe('StoryService', () => {
   it('should return null for non-existent story', async () => {
     const result = await service.findById('nonexistent', 't1');
     expect(result).toBeNull();
+  });
+
+  it('still returns the created story when dashboard usage recording rejects', async () => {
+    // recordLlmUsage() is called fire-and-forget via `.catch()` in
+    // StoryService.create(). If that `.catch()` were ever removed, this
+    // rejection would become an unhandled promise rejection and/or the
+    // failure would surface before `create()` resolves -- this test is
+    // meant to go red in that case.
+    const childService = module.get(ChildService);
+    const memoryService = module.get(MemoryService);
+    const engineGateway = module.get(EngineGatewayService);
+    const dashboardService = module.get(DashboardService);
+
+    (memoryService.getRelevant as jest.Mock).mockResolvedValue([]);
+    (childService.getOrCreate as jest.Mock).mockResolvedValue({
+      childId: 'child-1',
+      childName: 'Bé An',
+      age: 4,
+      gender: '',
+      preferredCharacters: '',
+    });
+    (engineGateway.generate as jest.Mock).mockResolvedValue({
+      requestId: 'req-1',
+      title: 'Chuyến phiêu lưu',
+      content: [],
+      safetyStatus: 'APPROVED',
+      llmCalls: 1,
+      retryCount: 0,
+      latencyMs: 1000,
+      wordCount: 50,
+      isFallback: false,
+    });
+    (dashboardService.recordLlmUsage as jest.Mock).mockRejectedValueOnce(new Error('dashboard db down'));
+
+    const result = await service.create(
+      { child_name: 'Bé An', age: 4, theme: 'Động vật' } as any,
+      't1',
+    );
+
+    expect(result).toBeDefined();
+    expect(result.title).toBe('Chuyến phiêu lưu');
   });
 });
