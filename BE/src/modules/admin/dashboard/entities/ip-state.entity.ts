@@ -1,5 +1,8 @@
 import { Entity, PrimaryColumn, Column } from 'typeorm';
 
+// 'temp_blocked' is reserved for a future time-limited block. It is validated
+// in IpStateQueryDto and ranked in severityRank, but no code path currently
+// assigns it to an IpState -- do not remove it.
 export type IpStatus = 'ok' | 'throttled' | 'temp_blocked' | 'perm_blocked';
 
 @Entity('ip_states')

@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, MoreThanOrEqual, LessThanOrEqual, EntityManager, In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import * as path from 'node:path';
 import { TrafficEvent } from '../entities/traffic-event.entity';
 import { TrafficHourly } from '../entities/traffic-hourly.entity';
 import { LlmUsageEvent } from '../entities/llm-usage-event.entity';
@@ -34,7 +35,7 @@ interface TrafficAgg {
   bytes_out: number;
   error_5xx: number;
   error_4xx: number;
-  p95_latency_ms: number;
+  p95_latency_max_ms: number;
 }
 
 export interface TrafficOverview {
@@ -42,10 +43,10 @@ export interface TrafficOverview {
   bytes_in: number;
   bytes_out: number;
   unique_ips: number;
-  p95_latency_ms: number;
+  p95_latency_max_ms: number;
   error_5xx: number;
   error_4xx: number;
-  hourly: { hour: string; requests: number; bytes_out: number; lat_p95_ms: number }[];
+  hourly: { hour: string; requests: number; bytes_out: number; lat_p95_max_ms: number }[];
   status_dist: { status_class: string; requests: number }[];
   top_routes: { route: string; requests: number; bytes_out: number }[];
 }
@@ -91,12 +92,12 @@ export class DashboardService {
         error_5xx: acc.error_5xx + (r.statusClass.startsWith('5') ? r.reqCount : 0),
         error_4xx: acc.error_4xx + (r.statusClass.startsWith('4') ? r.reqCount : 0),
       }),
-      { requests: 0, bytes_in: 0, bytes_out: 0, error_5xx: 0, error_4xx: 0, p95_latency_ms: 0 },
+      { requests: 0, bytes_in: 0, bytes_out: 0, error_5xx: 0, error_4xx: 0, p95_latency_max_ms: 0 },
     );
 
     const totalReqs = agg.requests;
-    agg.p95_latency_ms =
-      totalReqs > 0 ? Math.round(rows.reduce((s, r) => s + r.latP95Ms * r.reqCount, 0) / totalReqs) : 0;
+    agg.p95_latency_max_ms =
+      totalReqs > 0 ? Math.round(rows.reduce((s, r) => s + r.latP95MaxMs * r.reqCount, 0) / totalReqs) : 0;
 
     const uniqueRow = await this.trafficEventRepo
       .createQueryBuilder('e')
@@ -136,12 +137,12 @@ export class DashboardService {
    * many rows. The trend chart wants one point per hour.
    */
   private rollupHourly(rows: TrafficHourly[]): TrafficOverview['hourly'] {
-    const byHour = new Map<string, { hour: string; requests: number; bytes_out: number; lat_p95_ms: number }>();
+    const byHour = new Map<string, { hour: string; requests: number; bytes_out: number; lat_p95_max_ms: number }>();
     for (const r of rows) {
-      const cur = byHour.get(r.hourBucket) ?? { hour: r.hourBucket, requests: 0, bytes_out: 0, lat_p95_ms: 0 };
+      const cur = byHour.get(r.hourBucket) ?? { hour: r.hourBucket, requests: 0, bytes_out: 0, lat_p95_max_ms: 0 };
       cur.requests += r.reqCount;
       cur.bytes_out += r.bytesOut;
-      cur.lat_p95_ms = Math.max(cur.lat_p95_ms, Math.round(r.latP95Ms));
+      cur.lat_p95_max_ms = Math.max(cur.lat_p95_max_ms, Math.round(r.latP95MaxMs));
       byHour.set(r.hourBucket, cur);
     }
     return [...byHour.values()].sort((a, b) => a.hour.localeCompare(b.hour));
@@ -161,11 +162,27 @@ export class DashboardService {
 
   async ingestTraffic(dto: TrafficIngestDto): Promise<{ ingested: number; skipped: number; alerts_created: number }> {
     const fs = await import('node:fs');
-    if (!fs.existsSync(dto.logPath)) {
-      throw new BadRequestException(`Log file not found: ${dto.logPath}`);
+
+    // Confine ingest to a configured directory. Without this, `logPath` is an
+    // admin-controlled arbitrary-file-read: any file the process can read
+    // (including .env) would be reachable via this endpoint.
+    const logDir = path.resolve(this.config.get<string>('DASHBOARD_NGINX_LOG_DIR', '/var/log/nginx'));
+    const resolvedPath = path.resolve(dto.logPath);
+    if (!this.isWithinDir(logDir, resolvedPath)) {
+      // Deliberately generic: echoing the rejected path back would turn this
+      // error into an existence oracle for arbitrary paths.
+      throw new BadRequestException('Log path is outside the configured log directory');
+    }
+    if (!fs.existsSync(resolvedPath)) {
+      throw new BadRequestException('Log file not found');
+    }
+    // Reject a symlink whose real target escapes the configured directory.
+    const realPath = fs.realpathSync(resolvedPath);
+    if (!this.isWithinDir(logDir, realPath)) {
+      throw new BadRequestException('Log path is outside the configured log directory');
     }
 
-    const raw = fs.readFileSync(dto.logPath, 'utf8');
+    const raw = fs.readFileSync(resolvedPath, 'utf8');
     const lines = raw.split('\n').filter((line) => line.trim());
     const logFormat = this.config.get<string>('DASHBOARD_NGINX_LOG_FORMAT', 'auto');
     const thresholds = {
@@ -241,7 +258,7 @@ export class DashboardService {
           bytesIn: () => `bytes_in + :addIn`,
           bytesOut: () => `bytes_out + :addOut`,
           latAvgMs: existing.reqCount > 0 ? (existing.latAvgMs * existing.reqCount + lat) / (existing.reqCount + 1) : lat,
-          latP95Ms: Math.max(existing.latP95Ms, lat),
+          latP95MaxMs: Math.max(existing.latP95MaxMs, lat),
         })
         .setParameters({ addIn: event.bytesIn || 0, addOut: event.bytesOut || 0 })
         .where({ ip: event.ip, hourBucket, route: event.route, statusClass })
@@ -256,7 +273,7 @@ export class DashboardService {
         bytesIn: event.bytesIn || 0,
         bytesOut: event.bytesOut || 0,
         latAvgMs: lat,
-        latP95Ms: lat,
+        latP95MaxMs: lat,
       }));
     }
   }
@@ -296,6 +313,17 @@ export class DashboardService {
     const d = new Date(timeLocal.replace(/:/, ' '));
     if (isNaN(d.getTime())) return this.nowIso();
     return d.toISOString().slice(0, 19);
+  }
+
+  /**
+   * True when `target` is `baseDir` itself or strictly nested inside it.
+   * A plain string-prefix compare would let a sibling like
+   * `/var/log/nginx-evil` pass a check against base `/var/log/nginx`;
+   * `path.relative` operates on path segments, so that case yields `..`.
+   */
+  private isWithinDir(baseDir: string, target: string): boolean {
+    const rel = path.relative(baseDir, target);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
   }
 
   private statusClass(status: number): string {

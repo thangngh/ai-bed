@@ -1,4 +1,5 @@
 import { DataSource, Repository } from 'typeorm';
+import { BadRequestException } from '@nestjs/common';
 import { DashboardService } from '../services/dashboard.service';
 import { TrafficEvent } from '../entities/traffic-event.entity';
 import { TrafficHourly } from '../entities/traffic-hourly.entity';
@@ -10,7 +11,7 @@ import { Alert } from '../entities/alert.entity';
 import { AdminSetting } from '../entities/admin-setting.entity';
 import { ConfigService } from '@nestjs/config';
 import { makeDataSource } from '../../../../common/__tests__/test-db';
-import { writeFileSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -23,6 +24,10 @@ function mockConfigService(): ConfigService {
   return {
     get: jest.fn((key: string, def?: any) => {
       if (key === 'DASHBOARD_NGINX_LOG_FORMAT') return 'auto';
+      // Tests write log fixtures under tmpdir(); pointing the confinement base
+      // at tmpdir() here (instead of the real default) keeps the containment
+      // check honest rather than weakening it for the test environment.
+      if (key === 'DASHBOARD_NGINX_LOG_DIR') return tmpdir();
       if (key === 'DASHBOARD_DDOS_WINDOW_MS') return 60000;
       if (key === 'engine.provider') return 'openai';
       if (key === 'engine.model') return 'gpt-4o-mini';
@@ -62,15 +67,15 @@ describe('DashboardService', () => {
       await ds.getRepository(TrafficHourly).save([
         Object.assign(new TrafficHourly(), {
           ip: '10.0.0.1', hourBucket: '2026-08-14T10', route: '/api/story/create',
-          statusClass: '2xx', reqCount: 100, bytesIn: 50000, bytesOut: 120000, latAvgMs: 800, latP95Ms: 1500,
+          statusClass: '2xx', reqCount: 100, bytesIn: 50000, bytesOut: 120000, latAvgMs: 800, latP95MaxMs: 1500,
         }),
         Object.assign(new TrafficHourly(), {
           ip: '10.0.0.2', hourBucket: '2026-08-14T10', route: '/api/story/create',
-          statusClass: '5xx', reqCount: 2, bytesIn: 1000, bytesOut: 500, latAvgMs: 5000, latP95Ms: 5000,
+          statusClass: '5xx', reqCount: 2, bytesIn: 1000, bytesOut: 500, latAvgMs: 5000, latP95MaxMs: 5000,
         }),
         Object.assign(new TrafficHourly(), {
           ip: '10.0.0.3', hourBucket: '2026-08-14T11', route: '/api/child-profile',
-          statusClass: '2xx', reqCount: 50, bytesIn: 10000, bytesOut: 20000, latAvgMs: 300, latP95Ms: 600,
+          statusClass: '2xx', reqCount: 50, bytesIn: 10000, bytesOut: 20000, latAvgMs: 300, latP95MaxMs: 600,
         }),
       ]);
       await ds.getRepository(TrafficEvent).save([
@@ -109,7 +114,7 @@ describe('DashboardService', () => {
       expect(result.hourly[0].hour).toBe('2026-08-14T10');
       expect(result.hourly[0].requests).toBe(102);
       expect(result.hourly[0].bytes_out).toBe(120500);
-      expect(result.hourly[0].lat_p95_ms).toBe(5000);
+      expect(result.hourly[0].lat_p95_max_ms).toBe(5000);
       expect(result.hourly[1].hour).toBe('2026-08-14T11');
       expect(result.hourly[1].requests).toBe(50);
     });
@@ -206,7 +211,7 @@ describe('DashboardService', () => {
       expect(row!.reqCount).toBe(2);
       expect(row!.bytesOut).toBe(3579);
       expect(row!.bytesIn).toBe(1245);
-      expect(row!.latP95Ms).toBe(120);
+      expect(row!.latP95MaxMs).toBe(120);
     });
 
     it('updates ip_state scores during ingest', async () => {
@@ -223,6 +228,43 @@ describe('DashboardService', () => {
 
     it('rejects a missing log file', async () => {
       await expect(service.ingestTraffic({ logPath: '/nonexistent/path.log' })).rejects.toThrow();
+    });
+
+    it('accepts a log file inside the configured directory', async () => {
+      // logFile lives under tmpdir(), which mockConfigService reports as
+      // DASHBOARD_NGINX_LOG_DIR -- this is the happy path the confinement
+      // check must not break.
+      const result = await service.ingestTraffic({ logPath: logFile });
+      expect(result.ingested).toBe(3);
+    });
+
+    it('rejects a path-traversal attempt out of the configured directory', async () => {
+      const traversal = join(tmpdir(), '..', '..', 'etc', 'passwd');
+      await expect(service.ingestTraffic({ logPath: traversal })).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a sibling directory that only shares the base dir as a string prefix', async () => {
+      // `${tmpdir()}-evil` starts with the exact characters of the configured
+      // base directory, so a naive `startsWith` check would wrongly accept it.
+      const siblingDir = `${tmpdir()}-evil`;
+      const siblingFile = join(siblingDir, 'sneaky.log');
+      mkdirSync(siblingDir, { recursive: true });
+      writeFileSync(siblingFile, '192.168.1.1 - - [14/Aug/2026:10:30:00 +0000] "GET /api/x HTTP/1.1" 200 100 50 0.010\n');
+      try {
+        await expect(service.ingestTraffic({ logPath: siblingFile })).rejects.toThrow(BadRequestException);
+      } finally {
+        rmSync(siblingDir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not echo the rejected path back in the error message', async () => {
+      const secretPath = '/etc/very-secret-path-marker';
+      expect.assertions(1);
+      try {
+        await service.ingestTraffic({ logPath: secretPath });
+      } catch (err) {
+        expect((err as Error).message).not.toContain(secretPath);
+      }
     });
 
     it('skips malformed lines', async () => {

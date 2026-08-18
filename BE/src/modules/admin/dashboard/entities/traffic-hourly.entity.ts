@@ -19,6 +19,6 @@ export class TrafficHourly {
   bytesOut!: number;
   @Column({ name: 'lat_avg_ms', type: 'real', default: 0 })
   latAvgMs!: number;
-  @Column({ name: 'lat_p95_ms', type: 'real', default: 0 })
-  latP95Ms!: number;
+  @Column({ name: 'lat_p95_max_ms', type: 'real', default: 0 })
+  latP95MaxMs!: number;
 }

@@ -38,7 +38,7 @@ Hourly trend bars, status code distribution, top routes table.
 | requests | traffic_hourly.SUM(req_count) |
 | bytes in | traffic_hourly.SUM(bytes_in) |
 | bytes out | traffic_hourly.SUM(bytes_out) |
-| p95 latency | traffic_hourly.AVG(lat_p95_ms) |
+| p95 latency (thực chất là max, xem nợ kỹ thuật #1) | traffic_hourly.AVG(lat_p95_max_ms) |
 | unique IPs | traffic_event.COUNT(DISTINCT ip) |
 | 5xx | traffic_hourly SUM where status_class=5xx |
 | hourly bars | traffic_hourly.hour_bucket, SUM(req_count) |
@@ -170,10 +170,11 @@ Chỉ hạ cấp qua `DELETE /ip/states/:ip` (unblock) hoặc `POST /ip/rules/ap
 
 | # | Vấn đề | Lý do hoãn |
 |---|---|---|
-| 1 | `traffic_hourly.lat_p95_ms` thực chất là **max**, không phải p95 | Tính p95 thật cần giữ toàn bộ mẫu latency theo giờ. Với mức traffic MVP, max là cận trên hữu ích. Đổi tên cột khi có nhu cầu thật. |
-| 2 | `trafficOverview.p95_latency_ms` là trung bình có trọng số của các max theo hàng | Hệ quả của (1). Spec §3.1 vốn đã ghi `AVG(lat_p95_ms)`. |
+| 1 | `traffic_hourly.lat_p95_max_ms` (trước đây `lat_p95_ms`) thực chất là **max**, không phải p95 | Đã đổi tên cột và mọi tham chiếu để tên không còn mô tả sai thống kê. Vẫn còn thiếu: tính p95 thật cần giữ toàn bộ mẫu latency theo giờ (per-bucket samples), việc đó bị hoãn tới khi có nhu cầu thật. |
+| 2 | `trafficOverview.p95_latency_max_ms` (trước đây `p95_latency_ms`) là trung bình có trọng số của các max theo hàng | Hệ quả của (1), tên đã sửa cho khớp. Spec §3.1 nay ghi `AVG(lat_p95_max_ms)`. Việc còn thiếu là như trên: cần per-bucket latency samples để tính percentile thật thay vì max. |
 | 3 | nginx `log_format` chưa được chốt trong config vận hành | Regex ingest hiện khớp `$remote_addr … "$request" $status $body_bytes_sent $request_length $request_time`, với `$request_time` là số thập phân giây (vd `0.123`) và được quy đổi sang mili-giây khi ghi `traffic_event.lat_ms`. Combined format mặc định **không** khớp. Phải chốt `log_format` trong nginx conf trước khi bật cron ingest. |
 | 4 | `DASHBOARD_NGINX_LOG_FORMAT` khác `'auto'` → `parseLogLine` trả null cho mọi dòng | Chỉ có một format được hỗ trợ. Thêm format khi thực sự cần. |
 | 5 | Token của LLM là ước lượng (`ký tự/4`, `word_count × 1.3`) | Engine chưa trả token usage thật. Cột `est_cost_usd` vì thế cũng là ước lượng. |
 | 6 | Không có index trên `traffic_hourly.hour_bucket`, `ip_states.status`, `llm_usage_event.provider` | Chưa có dữ liệu đủ lớn để đo. Thêm khi thấy chậm thật. |
 | 7 | `provider`/`model` ghi vào `llm_usage_event` là giá trị **cấu hình**, không phải provider thực sự đã trả lời | Engine chưa báo ngược provider của fallback chain. Đã ghi chú trong `engine.config.ts`. |
+| 8 | `IpRule` với `action: 'allow'` bị bỏ qua hoàn toàn | `applyIpRules()` chỉ tìm rule có `action === 'deny'` để chặn; không có nhánh nào đọc rule `allow`. Deny luôn thắng và allow không có tác dụng gì — admin có thể tạo rule allow tin rằng nó mở lại một dải IP trong khi thực tế không đổi gì. Chưa có kế hoạch triển khai allowlist thật. |
