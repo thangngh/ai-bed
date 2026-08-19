@@ -12,3 +12,4 @@ build/
 # Integration-run artefacts; history.json is kept so runs stay comparable.
 test-results/*.json
 !test-results/history.json
+.nginx-admin.htpasswd

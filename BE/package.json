@@ -6,6 +6,7 @@
     "build": "nest build",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
+    "db:init": "node scripts/create-all-tables.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
