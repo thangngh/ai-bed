@@ -4,7 +4,7 @@ const { randomBytes, scryptSync } = crypto;
 const sqlite3 = require('sqlite3').verbose();
 const dbPath = process.env.CORE_DB_PATH || 'data/core.db';
 const password = process.env.ADMIN_PASSWORD;
-const username = process.env.ADMIN_USERNAME || 'sysadmin';
+const username = process.env.ADMIN_USERNAME || 'admin';
 if(!password){ console.error('ADMIN_PASSWORD not set'); process.exit(2); }
 const N = 32768, R = 8, P = 1, KEYLEN = 64, MAXMEM = 64*1024*1024;
 const salt = randomBytes(16);
