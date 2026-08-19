@@ -13,3 +13,4 @@ build/
 test-results/*.json
 !test-results/history.json
 .nginx-admin.htpasswd
+push.log
