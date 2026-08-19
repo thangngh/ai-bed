@@ -1,0 +1,188 @@
+09:18:51.336572 git.c:463               trace: built-in: git push -u origin HEAD:ThanhDeploy
+09:18:51.336708 run-command.c:659       trace: run_command: GIT_DIR=.git git remote-https origin https://github.com/thangngh/ai-bed.git
+09:18:51.338143 git.c:749               trace: exec: git-remote-https origin https://github.com/thangngh/ai-bed.git
+09:18:51.338173 run-command.c:659       trace: run_command: git-remote-https origin https://github.com/thangngh/ai-bed.git
+09:18:51.342873 http.c:845              == Info: Couldn't find host github.com in the .netrc file; using defaults
+09:18:51.363187 http.c:845              == Info: Host github.com:443 was resolved.
+09:18:51.363207 http.c:845              == Info: IPv6: (none)
+09:18:51.363209 http.c:845              == Info: IPv4: 20.205.243.166
+09:18:51.363240 http.c:845              == Info:   Trying 20.205.243.166:443...
+09:18:51.414517 http.c:845              == Info: Connected to github.com (20.205.243.166) port 443
+09:18:51.436807 http.c:845              == Info: found 363 certificates in /etc/ssl/certs
+09:18:51.436878 http.c:845              == Info: GnuTLS ciphers: NORMAL:-ARCFOUR-128:-CTYPE-ALL:+CTYPE-X509:-VERS-SSL3.0
+09:18:51.436896 http.c:845              == Info: ALPN: curl offers h2,http/1.1
+09:18:51.489271 http.c:845              == Info: SSL connection using TLS1.3 / ECDHE_RSA_AES_128_GCM_SHA256
+09:18:51.491022 http.c:845              == Info:   server certificate verification OK
+09:18:51.491036 http.c:845              == Info:   server certificate status verification SKIPPED
+09:18:51.491095 http.c:845              == Info:   common name: github.com (matched)
+09:18:51.491101 http.c:845              == Info:   server certificate expiration date OK
+09:18:51.491103 http.c:845              == Info:   server certificate activation date OK
+09:18:51.491108 http.c:845              == Info:   certificate public key: EC/ECDSA
+09:18:51.491110 http.c:845              == Info:   certificate version: #3
+09:18:51.491118 http.c:845              == Info:   subject: CN=github.com
+09:18:51.491123 http.c:845              == Info:   start date: Fri, 03 Jul 2026 00:00:00 GMT
+09:18:51.491126 http.c:845              == Info:   expire date: Wed, 30 Sep 2026 23:59:59 GMT
+09:18:51.491136 http.c:845              == Info:   issuer: C=GB,O=Sectigo Limited,CN=Sectigo Public Server Authentication CA DV E36
+09:18:51.491144 http.c:845              == Info: ALPN: server accepted h2
+09:18:51.491225 http.c:845              == Info: using HTTP/2
+09:18:51.491264 http.c:845              == Info: [HTTP/2] [1] OPENED stream for https://github.com/thangngh/ai-bed.git/info/refs?service=git-receive-pack
+09:18:51.491269 http.c:845              == Info: [HTTP/2] [1] [:method: GET]
+09:18:51.491271 http.c:845              == Info: [HTTP/2] [1] [:scheme: https]
+09:18:51.491272 http.c:845              == Info: [HTTP/2] [1] [:authority: github.com]
+09:18:51.491273 http.c:845              == Info: [HTTP/2] [1] [:path: /thangngh/ai-bed.git/info/refs?service=git-receive-pack]
+09:18:51.491275 http.c:845              == Info: [HTTP/2] [1] [user-agent: git/2.43.0]
+09:18:51.491276 http.c:845              == Info: [HTTP/2] [1] [accept: */*]
+09:18:51.491277 http.c:845              == Info: [HTTP/2] [1] [accept-encoding: deflate, gzip, br, zstd]
+09:18:51.491278 http.c:845              == Info: [HTTP/2] [1] [accept-language: C, *;q=0.9]
+09:18:51.491279 http.c:845              == Info: [HTTP/2] [1] [pragma: no-cache]
+09:18:51.491302 http.c:792              => Send header, 0000000214 bytes (0x000000d6)
+09:18:51.491306 http.c:804              => Send header: GET /thangngh/ai-bed.git/info/refs?service=git-receive-pack HTTP/2
+09:18:51.491307 http.c:804              => Send header: Host: github.com
+09:18:51.491307 http.c:804              => Send header: User-Agent: git/2.43.0
+09:18:51.491308 http.c:804              => Send header: Accept: */*
+09:18:51.491309 http.c:804              => Send header: Accept-Encoding: deflate, gzip, br, zstd
+09:18:51.491310 http.c:804              => Send header: Accept-Language: C, *;q=0.9
+09:18:51.491312 http.c:804              => Send header: Pragma: no-cache
+09:18:51.491312 http.c:804              => Send header:
+09:18:51.786009 http.c:792              <= Recv header, 0000000013 bytes (0x0000000d)
+09:18:51.786032 http.c:804              <= Recv header: HTTP/2 401
+09:18:51.786037 http.c:792              <= Recv header, 0000000026 bytes (0x0000001a)
+09:18:51.786040 http.c:804              <= Recv header: server: GitHub-Babel/3.0
+09:18:51.786042 http.c:792              <= Recv header, 0000000054 bytes (0x00000036)
+09:18:51.786043 http.c:804              <= Recv header: content-security-policy: default-src 'none'; sandbox
+09:18:51.786046 http.c:792              <= Recv header, 0000000041 bytes (0x00000029)
+09:18:51.786049 http.c:804              <= Recv header: content-type: text/plain; charset=UTF-8
+09:18:51.786050 http.c:792              <= Recv header, 0000000045 bytes (0x0000002d)
+09:18:51.786052 http.c:804              <= Recv header: strict-transport-security: max-age=31536000
+09:18:51.786054 http.c:792              <= Recv header, 0000000040 bytes (0x00000028)
+09:18:51.786055 http.c:804              <= Recv header: www-authenticate: Basic realm="GitHub"
+09:18:51.786059 http.c:792              <= Recv header, 0000000020 bytes (0x00000014)
+09:18:51.786061 http.c:804              <= Recv header: content-length: 21
+09:18:51.786062 http.c:792              <= Recv header, 0000000037 bytes (0x00000025)
+09:18:51.786063 http.c:804              <= Recv header: date: Wed, 19 Aug 2026 09:18:51 GMT
+09:18:51.786065 http.c:792              <= Recv header, 0000000023 bytes (0x00000017)
+09:18:51.786066 http.c:804              <= Recv header: x-frame-options: DENY
+09:18:51.786067 http.c:792              <= Recv header, 0000000059 bytes (0x0000003b)
+09:18:51.786068 http.c:804              <= Recv header: x-github-request-id: 87EC:379782:10C9F12:11A94D6:6A8574FB
+09:18:51.786069 http.c:792              <= Recv header, 0000000037 bytes (0x00000025)
+09:18:51.786071 http.c:804              <= Recv header: x-github-edge-region: southeastasia
+09:18:51.786073 http.c:792              <= Recv header, 0000000002 bytes (0x00000002)
+09:18:51.786074 http.c:804              <= Recv header:
+09:18:51.786086 http.c:845              == Info: Connection #0 to host github.com left intact
+09:18:51.786127 run-command.c:659       trace: run_command: /root/.vscode-server/cli/servers/Stable-c2d1b13fdc4a77628e5f3bb70173351c8f2fbad1/server/extensions/git/dist/askpass.sh 'Username for '\''https://github.com'\'': '
+09:18:51.928257 run-command.c:659       trace: run_command: /root/.vscode-server/cli/servers/Stable-c2d1b13fdc4a77628e5f3bb70173351c8f2fbad1/server/extensions/git/dist/askpass.sh 'Password for '\''https://95995552@github.com'\'': '
+09:18:51.976216 http.c:845              == Info: Found bundle for host: 0x63cd9a1731a0 [can multiplex]
+09:18:51.976243 http.c:845              == Info: Re-using existing connection with host github.com
+09:18:51.976255 http.c:845              == Info: Server auth using Basic with user '95995552'
+09:18:51.976290 http.c:845              == Info: [HTTP/2] [3] OPENED stream for https://github.com/thangngh/ai-bed.git/info/refs?service=git-receive-pack
+09:18:51.976293 http.c:845              == Info: [HTTP/2] [3] [:method: GET]
+09:18:51.976294 http.c:845              == Info: [HTTP/2] [3] [:scheme: https]
+09:18:51.976296 http.c:845              == Info: [HTTP/2] [3] [:authority: github.com]
+09:18:51.976297 http.c:845              == Info: [HTTP/2] [3] [:path: /thangngh/ai-bed.git/info/refs?service=git-receive-pack]
+09:18:51.976299 http.c:845              == Info: [HTTP/2] [3] [authorization: Basic <redacted>]
+09:18:51.976300 http.c:845              == Info: [HTTP/2] [3] [user-agent: git/2.43.0]
+09:18:51.976301 http.c:845              == Info: [HTTP/2] [3] [accept: */*]
+09:18:51.976302 http.c:845              == Info: [HTTP/2] [3] [accept-encoding: deflate, gzip, br, zstd]
+09:18:51.976303 http.c:845              == Info: [HTTP/2] [3] [accept-language: C, *;q=0.9]
+09:18:51.976304 http.c:845              == Info: [HTTP/2] [3] [pragma: no-cache]
+09:18:51.976371 http.c:792              => Send header, 0000000305 bytes (0x00000131)
+09:18:51.976375 http.c:804              => Send header: GET /thangngh/ai-bed.git/info/refs?service=git-receive-pack HTTP/2
+09:18:51.976376 http.c:804              => Send header: Host: github.com
+09:18:51.976377 http.c:804              => Send header: Authorization: Basic <redacted>
+09:18:51.976378 http.c:804              => Send header: User-Agent: git/2.43.0
+09:18:51.976380 http.c:804              => Send header: Accept: */*
+09:18:51.976382 http.c:804              => Send header: Accept-Encoding: deflate, gzip, br, zstd
+09:18:51.976384 http.c:804              => Send header: Accept-Language: C, *;q=0.9
+09:18:51.976387 http.c:804              => Send header: Pragma: no-cache
+09:18:51.976388 http.c:804              => Send header:
+09:18:52.500347 http.c:792              <= Recv header, 0000000013 bytes (0x0000000d)
+09:18:52.500366 http.c:804              <= Recv header: HTTP/2 200
+09:18:52.500372 http.c:792              <= Recv header, 0000000026 bytes (0x0000001a)
+09:18:52.500375 http.c:804              <= Recv header: server: GitHub-Babel/3.0
+09:18:52.500378 http.c:792              <= Recv header, 0000000060 bytes (0x0000003c)
+09:18:52.500379 http.c:804              <= Recv header: content-type: application/x-git-receive-pack-advertisement
+09:18:52.500381 http.c:792              <= Recv header, 0000000054 bytes (0x00000036)
+09:18:52.500383 http.c:804              <= Recv header: content-security-policy: default-src 'none'; sandbox
+09:18:52.500389 http.c:792              <= Recv header, 0000000040 bytes (0x00000028)
+09:18:52.500391 http.c:804              <= Recv header: expires: Fri, 01 Jan 1980 00:00:00 GMT
+09:18:52.500393 http.c:792              <= Recv header, 0000000018 bytes (0x00000012)
+09:18:52.500395 http.c:804              <= Recv header: pragma: no-cache
+09:18:52.500397 http.c:792              <= Recv header, 0000000053 bytes (0x00000035)
+09:18:52.500398 http.c:804              <= Recv header: cache-control: no-cache, max-age=0, must-revalidate
+09:18:52.500400 http.c:792              <= Recv header, 0000000023 bytes (0x00000017)
+09:18:52.500402 http.c:804              <= Recv header: vary: Accept-Encoding
+09:18:52.500404 http.c:792              <= Recv header, 0000000045 bytes (0x0000002d)
+09:18:52.500407 http.c:804              <= Recv header: strict-transport-security: max-age=31536000
+09:18:52.500408 http.c:792              <= Recv header, 0000000037 bytes (0x00000025)
+09:18:52.500410 http.c:804              <= Recv header: date: Wed, 19 Aug 2026 09:18:52 GMT
+09:18:52.500411 http.c:792              <= Recv header, 0000000023 bytes (0x00000017)
+09:18:52.500413 http.c:804              <= Recv header: x-frame-options: DENY
+09:18:52.500415 http.c:792              <= Recv header, 0000000059 bytes (0x0000003b)
+09:18:52.500416 http.c:804              <= Recv header: x-github-request-id: 87EC:379782:10CA031:11A95FB:6A8574FB
+09:18:52.500418 http.c:792              <= Recv header, 0000000037 bytes (0x00000025)
+09:18:52.500419 http.c:804              <= Recv header: x-github-edge-region: southeastasia
+09:18:52.500422 http.c:792              <= Recv header, 0000000002 bytes (0x00000002)
+09:18:52.500423 http.c:804              <= Recv header:
+09:18:52.500435 http.c:845              == Info: Connection #0 to host github.com left intact
+09:18:52.500912 run-command.c:659       trace: run_command: git send-pack --stateless-rpc --helper-status --thin --no-progress https://github.com/thangngh/ai-bed.git/ --stdin
+09:18:52.503206 git.c:463               trace: built-in: git send-pack --stateless-rpc --helper-status --thin --no-progress https://github.com/thangngh/ai-bed.git/ --stdin
+09:18:52.506019 run-command.c:659       trace: run_command: git pack-objects --all-progress-implied --revs --stdout --thin --delta-base-offset -q
+09:18:52.507467 git.c:463               trace: built-in: git pack-objects --all-progress-implied --revs --stdout --thin --delta-base-offset -q
+09:18:52.514426 http.c:845              == Info: Found bundle for host: 0x63cd9a1731a0 [can multiplex]
+09:18:52.514446 http.c:845              == Info: Re-using existing connection with host github.com
+09:18:52.514461 http.c:845              == Info: Server auth using Basic with user '95995552'
+09:18:52.514515 http.c:845              == Info: [HTTP/2] [5] OPENED stream for https://github.com/thangngh/ai-bed.git/git-receive-pack
+09:18:52.514523 http.c:845              == Info: [HTTP/2] [5] [:method: POST]
+09:18:52.514525 http.c:845              == Info: [HTTP/2] [5] [:scheme: https]
+09:18:52.514526 http.c:845              == Info: [HTTP/2] [5] [:authority: github.com]
+09:18:52.514527 http.c:845              == Info: [HTTP/2] [5] [:path: /thangngh/ai-bed.git/git-receive-pack]
+09:18:52.514531 http.c:845              == Info: [HTTP/2] [5] [authorization: Basic <redacted>]
+09:18:52.514532 http.c:845              == Info: [HTTP/2] [5] [user-agent: git/2.43.0]
+09:18:52.514534 http.c:845              == Info: [HTTP/2] [5] [accept-encoding: deflate, gzip, br, zstd]
+09:18:52.514535 http.c:845              == Info: [HTTP/2] [5] [content-type: application/x-git-receive-pack-request]
+09:18:52.514536 http.c:845              == Info: [HTTP/2] [5] [accept: application/x-git-receive-pack-result]
+09:18:52.514537 http.c:845              == Info: [HTTP/2] [5] [accept-language: C, *;q=0.9]
+09:18:52.514538 http.c:845              == Info: [HTTP/2] [5] [content-length: 8445]
+09:18:52.514629 http.c:792              => Send header, 0000000380 bytes (0x0000017c)
+09:18:52.514638 http.c:804              => Send header: POST /thangngh/ai-bed.git/git-receive-pack HTTP/2
+09:18:52.514640 http.c:804              => Send header: Host: github.com
+09:18:52.514641 http.c:804              => Send header: Authorization: Basic <redacted>
+09:18:52.514643 http.c:804              => Send header: User-Agent: git/2.43.0
+09:18:52.514645 http.c:804              => Send header: Accept-Encoding: deflate, gzip, br, zstd
+09:18:52.514646 http.c:804              => Send header: Content-Type: application/x-git-receive-pack-request
+09:18:52.514649 http.c:804              => Send header: Accept: application/x-git-receive-pack-result
+09:18:52.514650 http.c:804              => Send header: Accept-Language: C, *;q=0.9
+09:18:52.514652 http.c:804              => Send header: Content-Length: 8445
+09:18:52.514653 http.c:804              => Send header:
+09:18:53.394836 http.c:792              <= Recv header, 0000000013 bytes (0x0000000d)
+09:18:53.394848 http.c:804              <= Recv header: HTTP/2 200
+09:18:53.394854 http.c:792              <= Recv header, 0000000026 bytes (0x0000001a)
+09:18:53.394856 http.c:804              <= Recv header: server: GitHub-Babel/3.0
+09:18:53.394858 http.c:792              <= Recv header, 0000000053 bytes (0x00000035)
+09:18:53.394859 http.c:804              <= Recv header: content-type: application/x-git-receive-pack-result
+09:18:53.394861 http.c:792              <= Recv header, 0000000054 bytes (0x00000036)
+09:18:53.394862 http.c:804              <= Recv header: content-security-policy: default-src 'none'; sandbox
+09:18:53.394863 http.c:792              <= Recv header, 0000000040 bytes (0x00000028)
+09:18:53.394865 http.c:804              <= Recv header: expires: Fri, 01 Jan 1980 00:00:00 GMT
+09:18:53.394866 http.c:792              <= Recv header, 0000000018 bytes (0x00000012)
+09:18:53.394867 http.c:804              <= Recv header: pragma: no-cache
+09:18:53.394869 http.c:792              <= Recv header, 0000000053 bytes (0x00000035)
+09:18:53.394870 http.c:804              <= Recv header: cache-control: no-cache, max-age=0, must-revalidate
+09:18:53.394871 http.c:792              <= Recv header, 0000000023 bytes (0x00000017)
+09:18:53.394872 http.c:804              <= Recv header: vary: Accept-Encoding
+09:18:53.394873 http.c:792              <= Recv header, 0000000045 bytes (0x0000002d)
+09:18:53.394875 http.c:804              <= Recv header: strict-transport-security: max-age=31536000
+09:18:53.394876 http.c:792              <= Recv header, 0000000037 bytes (0x00000025)
+09:18:53.394877 http.c:804              <= Recv header: date: Wed, 19 Aug 2026 09:18:52 GMT
+09:18:53.394878 http.c:792              <= Recv header, 0000000023 bytes (0x00000017)
+09:18:53.394880 http.c:804              <= Recv header: x-frame-options: DENY
+09:18:53.394881 http.c:792              <= Recv header, 0000000059 bytes (0x0000003b)
+09:18:53.394882 http.c:804              <= Recv header: x-github-request-id: 87EC:379782:10CA175:11A9731:6A8574FC
+09:18:53.394883 http.c:792              <= Recv header, 0000000037 bytes (0x00000025)
+09:18:53.394884 http.c:804              <= Recv header: x-github-edge-region: southeastasia
+09:18:53.394886 http.c:792              <= Recv header, 0000000002 bytes (0x00000002)
+09:18:53.394887 http.c:804              <= Recv header:
+09:18:53.394910 http.c:845              == Info: Connection #0 to host github.com left intact
+To https://github.com/thangngh/ai-bed.git
+   2840be4..a7fd1fe  HEAD -> ThanhDeploy
+branch 'ThanhDeploy' set up to track 'origin/ThanhDeploy'.
