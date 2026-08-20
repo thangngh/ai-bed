@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AdminLoginScreen from './AdminLoginScreen';
 import AdminFeedbackScreen from './AdminFeedbackScreen';
+import AdminIpScreen from './AdminIpScreen';
 import AdminLayout from './AdminLayout';
 import RequireAdmin from './RequireAdmin';
 
@@ -19,6 +20,7 @@ export default function AdminApp() {
         }
       >
         <Route path="feedback" element={<AdminFeedbackScreen />} />
+        <Route path="ip" element={<AdminIpScreen />} />
       </Route>
       <Route path="*" element={<Navigate to="/admin/feedback" replace />} />
     </Routes>

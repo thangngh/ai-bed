@@ -2,7 +2,10 @@ import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { clearToken } from './adminSession';
 
-const TABS = [{ to: '/admin/feedback', label: 'Feedback' }];
+const TABS = [
+  { to: '/admin/feedback', label: 'Feedback' },
+  { to: '/admin/ip', label: 'IP' },
+];
 
 /**
  * The page chrome every authenticated admin screen shares. Screens render only
