@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import AdminIpScreen from '../AdminIpScreen';
 import { ADMIN_TOKEN_KEY } from '../adminSession';
 import * as api from '../dashboardClient';
-import type { IpRule } from '../dashboardTypes';
+import type { IpRule, IpState, Paged } from '../dashboardTypes';
 
 const b64url = (obj: unknown) =>
   btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -40,6 +40,7 @@ describe('AdminIpScreen — rules', () => {
     localStorage.clear();
     localStorage.setItem(ADMIN_TOKEN_KEY, liveToken());
     vi.spyOn(api, 'fetchIpRules').mockResolvedValue([rule()]);
+    vi.spyOn(api, 'fetchIpStates').mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
@@ -134,5 +135,93 @@ describe('AdminIpScreen — rules', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Áp dụng rule' }));
 
     expect(await screen.findByText('Apply failed')).toBeInTheDocument();
+  });
+});
+
+function state(over: Partial<IpState> = {}): IpState {
+  return {
+    ip: '10.0.0.9', status: 'perm_blocked', tier: 'default', score: 120,
+    blockedUntil: null, autoBlocked: true, reason: 'ddos: 120 requests',
+    updatedAt: '2026-08-14T10:30:00',
+    ...over,
+  };
+}
+
+function statesPage(items: IpState[], total = items.length): Paged<IpState> {
+  return { items, total, limit: 50, offset: 0 };
+}
+
+describe('AdminIpScreen — states and ingest', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem(ADMIN_TOKEN_KEY, liveToken());
+    vi.spyOn(api, 'fetchIpRules').mockResolvedValue([]);
+    vi.spyOn(api, 'fetchIpStates').mockResolvedValue(statesPage([state()]));
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('lists the IP states', async () => {
+    renderScreen();
+    expect(await screen.findByText('ddos: 120 requests')).toBeInTheDocument();
+  });
+
+  it('offers unblock only for an IP that is not ok', async () => {
+    vi.spyOn(api, 'fetchIpStates').mockResolvedValue(
+      statesPage([state({ ip: '10.0.0.1', status: 'ok', reason: null }), state()]),
+    );
+    renderScreen();
+    await screen.findByText('ddos: 120 requests');
+
+    expect(screen.queryByRole('button', { name: /bỏ block 10\.0\.0\.1/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /bỏ block 10\.0\.0\.9/i })).toBeInTheDocument();
+  });
+
+  it('unblock confirms, then refetches the states', async () => {
+    const unblock = vi.spyOn(api, 'unblockIp').mockResolvedValue({ unblocked: true });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderScreen();
+    await screen.findByText('ddos: 120 requests');
+
+    await userEvent.click(screen.getByRole('button', { name: /bỏ block 10\.0\.0\.9/i }));
+
+    await waitFor(() => expect(unblock).toHaveBeenCalledWith('10.0.0.9'));
+    expect(api.fetchIpStates).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends the status filter from the URL to the API', async () => {
+    renderScreen('/admin/ip?status=throttled');
+    await waitFor(() => {
+      const params = (api.fetchIpStates as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as URLSearchParams;
+      expect(params.get('status')).toBe('throttled');
+      expect(params.get('limit')).toBe('50');
+    });
+  });
+
+  it('ingest shows the counts it got back', async () => {
+    vi.spyOn(api, 'ingestTraffic').mockResolvedValue({ ingested: 12, skipped: 3, alerts_created: 1 });
+    renderScreen();
+    await screen.findByLabelText('Đường dẫn log');
+
+    await userEvent.type(screen.getByLabelText('Đường dẫn log'), '/var/log/nginx/access.log');
+    await userEvent.click(screen.getByRole('button', { name: 'Ingest' }));
+
+    expect(await screen.findByText(/ingested: 12/i)).toBeInTheDocument();
+    expect(api.fetchIpStates).toHaveBeenCalledTimes(2);
+  });
+
+  it('ingest shows the BE message verbatim when the path is rejected', async () => {
+    const { ApiError } = await import('../../utils/api');
+    vi.spyOn(api, 'ingestTraffic').mockRejectedValue(
+      new ApiError('HTTP_ERROR', 'Log path is outside the configured log directory', 400),
+    );
+    renderScreen();
+    await screen.findByLabelText('Đường dẫn log');
+
+    await userEvent.type(screen.getByLabelText('Đường dẫn log'), '/etc/passwd');
+    await userEvent.click(screen.getByRole('button', { name: 'Ingest' }));
+
+    expect(
+      await screen.findByText('Log path is outside the configured log directory'),
+    ).toBeInTheDocument();
   });
 });
