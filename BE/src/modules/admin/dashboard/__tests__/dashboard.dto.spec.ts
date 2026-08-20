@@ -8,6 +8,7 @@ import { LlmQueryDto } from '../dto/llm-query.dto';
 import { IpStateQueryDto } from '../dto/ip-state-query.dto';
 import { AlertQueryDto } from '../dto/alert-query.dto';
 import { UpdateRuleDto } from '../dto/update-rule.dto';
+import { RuleDto } from '../dto/rule.dto';
 
 describe('RangeQueryDto', () => {
   it('accepts an hour bucket', () => {
@@ -140,5 +141,44 @@ describe('ValidationPipe on UpdateRuleDto (PATCH ip/rules/:id)', () => {
       bodyMeta,
     );
     expect(result).toMatchObject({ action: 'deny', enabled: false, tier: 'strict', note: 'manual block' });
+  });
+});
+
+/**
+ * `createIpRule` reads type/pattern/action/tier/note from the POST body,
+ * but RuleDto only decorated `id`. `whitelist: true` deletes every
+ * undecorated property before the handler runs, so a fully valid body
+ * arrived at createIpRule as `{}`.
+ */
+describe('ValidationPipe on RuleDto (POST ip/rules)', () => {
+  const pipe = new ValidationPipe();
+  const bodyMeta: ArgumentMetadata = { type: 'body', metatype: RuleDto, data: undefined };
+
+  const valid = { type: 'ip', pattern: '10.0.0.9', action: 'deny', tier: 'default', note: 'probe' };
+
+  it('keeps every field the service reads', async () => {
+    const out: any = await pipe.transform({ ...valid }, bodyMeta);
+    expect(out.type).toBe('ip');
+    expect(out.pattern).toBe('10.0.0.9');
+    expect(out.action).toBe('deny');
+    expect(out.tier).toBe('default');
+    expect(out.note).toBe('probe');
+  });
+
+  it('rejects a body with no type', async () => {
+    await expect(pipe.transform({ pattern: '10.0.0.9', action: 'deny' }, bodyMeta)).rejects.toThrow();
+  });
+
+  it('rejects an unknown action', async () => {
+    await expect(pipe.transform({ ...valid, action: 'drop' }, bodyMeta)).rejects.toThrow();
+  });
+
+  it('rejects an empty pattern', async () => {
+    await expect(pipe.transform({ ...valid, pattern: '' }, bodyMeta)).rejects.toThrow();
+  });
+
+  it('defaults tier when the caller omits it', async () => {
+    const out: any = await pipe.transform({ type: 'cidr', pattern: '10.0.0.0/24', action: 'deny' }, bodyMeta);
+    expect(out.tier).toBe('default');
   });
 });
