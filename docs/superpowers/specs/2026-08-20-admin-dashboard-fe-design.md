@@ -28,7 +28,9 @@ dashboard API.
 | BE debt #8 — `IpRule.action = 'allow'` không được đọc | Cần quyết định sản phẩm trước. |
 | BE debt #9 — `pattern` không validate hình dạng | Xem §4.4. |
 
-## 2. Task 0 — điều kiện tiên quyết ở BE
+## 2. Điều kiện tiên quyết ở BE
+
+### 2.1 `RuleDto` mất toàn bộ body
 
 `POST /admin/dashboard/ip/rules` hiện **âm thầm mất toàn bộ body**.
 
@@ -67,6 +69,34 @@ Test đỏ trước, trong `dashboard.dto.spec.ts`, theo khuôn test của Task 
 **Không** validate hình dạng IP/CIDR bằng regex. Một regex đúng cho cả IPv4, IPv6 và CIDR
 là thứ dễ sai và khó soát; sai theo hướng quá chặt sẽ chặn pattern hợp lệ mà người vận hành
 thực sự cần. Ghi lại thành **debt #9** trong `docs/admin/01-traffic-dashboard-spec.md` §7.
+
+### 2.2 `HttpExceptionFilter` đang làm mất message của exception Nest tiêu chuẩn
+
+Phát hiện khi kiểm tra §4.6 và §6: `BE/src/common/filters/http-exception.filter.ts` gán
+
+```ts
+body.error =
+  typeof res === 'string'
+    ? { code: 'HTTP_ERROR', message: res }
+    : (res as any).error ?? (res as any);
+```
+
+Với exception của ta, `getResponse()` là `{error:{code,message}}` nên `res.error` đúng là
+object cần lấy. Nhưng với exception dựng sẵn của Nest — `new BadRequestException('Log path
+is outside the configured log directory')` — `getResponse()` là
+`{statusCode:400, message:'Log path is outside…', error:'Bad Request'}`, nên `res.error` là
+**chuỗi status text**, và body gửi ra client thành `{error:'Bad Request'}`.
+
+Hệ quả: `adminFetch` đọc `body?.error?.code` và `body?.error?.message` đều ra `undefined`
+→ `ApiError('API_ERROR', undefined)`. §4.6 (panel ingest hiện nguyên câu BE viết) và mọi
+`NotFoundException` trong `dashboard.controller.ts` đều không dùng được như spec mô tả.
+
+**Sửa** — tách một hàm `normalizeError(res)` trả về object lồng khi `res.error` là object,
+ngược lại dựng `{code:'HTTP_ERROR', message: res.message}` (join nếu `message` là mảng).
+
+Blast radius: `grep` `'Bad Request'` / `'Not Found'` / `'HTTP_ERROR'` trong `BE/src` chỉ
+khớp chính file filter, và `http-exception.filter.spec.ts` không có test nào khẳng định
+nhánh hỏng — nên đây là sửa thêm hành vi, không phá hợp đồng nào đang có người dùng.
 
 ## 3. Kiến trúc FE
 
@@ -261,7 +291,7 @@ Một input `logPath` + nút. BE (Task 1 của plan trước) chặn path ngoài
 `DASHBOARD_NGINX_LOG_DIR`, nên lỗi hay gặp nhất là
 `400 Log path is outside the configured log directory`.
 
-Panel hiển thị **nguyên `message` từ BE**, không thay bằng câu chung. Thành công thì hiện
+Panel hiển thị **nguyên `detail` từ BE**, không thay bằng câu chung. Thành công thì hiện
 `ingested / skipped / alerts_created`.
 
 ## 5. Màn Alerts (`/admin/alerts`)
@@ -273,15 +303,18 @@ Mặc định mở màn là `?resolved=false` — người vận hành vào đâ
 mặc định bằng `Navigate replace` khi URL trống, không bằng default trong
 `filtersFromParams`, để URL luôn tự mô tả đầy đủ những gì đang hiển thị.
 
-### 5.1 Hai điểm phải xác nhận khi viết plan
+### 5.1 Hai điểm đã xác nhận từ code BE
 
-Không đoán, phải đọc code BE rồi chốt:
-
-1. **Encode query `resolved`** sau khi Task 8/9 thêm DTO validation: nhận `'true'/'false'`
-   dạng chuỗi hay đã transform thành boolean, và `undefined` có nghĩa "tất cả" hay không.
-   Quyết định `fetchAlerts` gửi gì.
-2. **`PATCH /alerts/:id/resolve` trên alert đã resolved** trả 200 hay 404/409. Quyết định có
-   cần disable nút hay không.
+1. **Query `resolved`** — `AlertQueryDto` có `@Transform(toBoolean)` chỉ map đúng chuỗi
+   `'true'` / `'false'` sang boolean; giá trị khác bị `@IsBoolean` từ chối (422). Bỏ tham số
+   → `undefined` → `listAlerts` không thêm điều kiện `where.resolved` → **tất cả**. Vậy
+   `fetchAlerts` gửi `resolved=true|false` dạng chuỗi, hoặc bỏ hẳn key khi filter rỗng.
+   Lưu ý: `AlertQueryDto.limit` cho tới `Max(1000)` nhưng `listAlerts` cap ở **200** — FE
+   dùng 50, không đụng tới hai mốc này.
+2. **`PATCH /alerts/:id/resolve` là idempotent** — `resolveAlert` chỉ tìm theo `id`, không
+   kiểm tra `resolved`, nên gọi lại trên alert đã resolved vẫn trả **200 + Alert** (chỉ
+   `resolvedAt` được ghi lại). 404 chỉ khi `id` không tồn tại. Vậy **không bắt buộc** disable
+   nút; FE vẫn ẩn nút ở hàng `resolved === true` cho gọn UI, không phải để chống lỗi.
 
 ### 5.2 Bảng
 
@@ -327,13 +360,17 @@ Bảng map, một chỗ duy nhất trong `useAdminResource`:
 | `UNAUTHORIZED` | không hiện — redirect `/admin/login` |
 | `TIMEOUT` | "Máy chủ phản hồi quá lâu. Thử lại." |
 | `NETWORK_ERROR` | "Không kết nối được máy chủ." |
-| khác | `err.message` từ BE nếu có, nếu không thì "Có lỗi xảy ra." |
+| khác | `err.detail` từ BE nếu có, nếu không thì "Có lỗi xảy ra." |
 
-Nhánh cuối cố ý ưu tiên `message` của BE. Dashboard trả những câu cụ thể và hữu ích
+**Phải là `err.detail`, không phải `err.message`.** `ApiError` cố ý giữ `message` bằng chính
+`code` (`FE/src/utils/api.ts:32`) để các assertion `toThrow('CODE')` còn chạy; text
+người-đọc nằm ở `detail`. Dùng `message` sẽ hiện ra chuỗi `API_ERROR` cho người vận hành.
+
+Nhánh cuối cố ý ưu tiên `detail` của BE. Dashboard trả những câu cụ thể và hữu ích
 (`Log path is outside the configured log directory`, `VALIDATION_ERROR` kèm field) — thay
 chúng bằng "Có lỗi xảy ra" là làm người vận hành mất thông tin duy nhất họ có.
 
-Giá phải trả: message của BE là tiếng Anh, nên màn hình sẽ lẫn hai ngôn ngữ. Chọn lẫn ngôn
+Giá phải trả: detail của BE là tiếng Anh, nên màn hình sẽ lẫn hai ngôn ngữ. Chọn lẫn ngôn
 ngữ thay vì mất thông tin.
 
 **Lỗi khi ghi không đi qua hook** (hook chỉ lo đọc). Mỗi màn giữ
@@ -360,7 +397,7 @@ File test mới:
 4. **`AdminIpScreen.test.tsx`** — render 3 khối; toggle `enabled` gọi PATCH rồi refetch
    rules; xoá rule có confirm (mock `window.confirm`), bấm Huỷ thì **không** gọi API;
    `applyIpRules` refetch cả rules và states; "Bỏ block" chỉ hiện với `status !== 'ok'`; lỗi
-   ingest hiện nguyên message BE.
+   ingest hiện nguyên detail BE.
 5. **`AdminAlertsScreen.test.tsx`** — mặc định `resolved=false`; badge severity; `detailJson`
    hỏng vẫn render chuỗi gốc; "Đã xử lý" refetch; polling tiến 30s bằng
    `vi.useFakeTimers()`.
