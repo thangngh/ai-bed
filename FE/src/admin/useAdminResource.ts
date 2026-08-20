@@ -6,6 +6,10 @@ import { clearToken } from './adminSession';
 const ERROR_MESSAGES: Record<string, string> = {
   TIMEOUT: 'Máy chủ phản hồi quá lâu. Thử lại.',
   NETWORK_ERROR: 'Không kết nối được máy chủ.',
+  // Generic on purpose: shared across screens whose 422 payload can be a
+  // query string, a filter, or a form body. A screen that needs sharper
+  // wording (e.g. AdminFeedbackScreen) still overrides this via `messages`.
+  VALIDATION_ERROR: 'Dữ liệu gửi lên không hợp lệ.',
 };
 
 /**

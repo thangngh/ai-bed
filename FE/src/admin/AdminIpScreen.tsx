@@ -95,10 +95,9 @@ export default function AdminIpScreen() {
         const result = await applyIpRules();
         setApplyResult(result);
       },
-      () => {
-        rules.reload();
-        states.reload();
-      },
+      // applyIpRules only ever writes ip_states rows (and creates alerts); it
+      // never touches ip_rules, so refetching rules here bought nothing.
+      () => states.reload(),
     );
   }
 

@@ -125,6 +125,20 @@ describe('AdminIpScreen — rules', () => {
     expect(await screen.findByText(/matched: 3/i)).toBeInTheDocument();
   });
 
+  it('applying rules only refetches states, not rules (apply never writes to ip_rules)', async () => {
+    vi.spyOn(api, 'applyIpRules').mockResolvedValue({ matched: 3, alerts_created: 1 });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderScreen();
+    await screen.findByRole('button', { name: 'Áp dụng rule' });
+    const rulesCallsBefore = (api.fetchIpRules as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Áp dụng rule' }));
+
+    await waitFor(() => expect(api.applyIpRules).toHaveBeenCalled());
+    await waitFor(() => expect(api.fetchIpStates).toHaveBeenCalledTimes(2));
+    expect(api.fetchIpRules).toHaveBeenCalledTimes(rulesCallsBefore);
+  });
+
   it('shows the BE message when a write fails', async () => {
     const { ApiError } = await import('../../utils/api');
     vi.spyOn(api, 'applyIpRules').mockRejectedValue(new ApiError('API_ERROR', 'Apply failed', 500));

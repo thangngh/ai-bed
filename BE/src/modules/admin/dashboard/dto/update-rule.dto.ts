@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { RuleAction } from '../entities/ip-rule.entity';
 
 /**
@@ -17,8 +17,10 @@ export class UpdateRuleDto {
   @IsBoolean()
   enabled?: boolean;
 
+  // 32 matches the ip_rules.tier column width; must stay in sync with RuleDto.
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   tier?: string;
 
   @IsOptional()

@@ -80,6 +80,18 @@ describe('useAdminResource', () => {
     await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('Log path is outside'));
   });
 
+  it('maps VALIDATION_ERROR to Vietnamese copy instead of the raw BE detail', async () => {
+    // The BE's class-validator detail is English ("offset must not be less
+    // than 0"); every screen that has no override for this code must still
+    // show Vietnamese, not that raw text.
+    const fetcher = vi.fn().mockRejectedValue(
+      new ApiError('VALIDATION_ERROR', 'offset must not be less than 0', 422),
+    );
+    renderHarness(<Harness fetcher={fetcher} />);
+    await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('Dữ liệu gửi lên không hợp lệ.'));
+    expect(screen.getByTestId('error')).not.toHaveTextContent('offset must not be less than 0');
+  });
+
   it('redirects to login on a 401', async () => {
     const fetcher = vi.fn().mockRejectedValue(new ApiError('UNAUTHORIZED', 'gone', 401));
     renderHarness(<Harness fetcher={fetcher} />);

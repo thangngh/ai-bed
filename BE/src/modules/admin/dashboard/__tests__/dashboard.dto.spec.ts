@@ -142,6 +142,19 @@ describe('ValidationPipe on UpdateRuleDto (PATCH ip/rules/:id)', () => {
     );
     expect(result).toMatchObject({ action: 'deny', enabled: false, tier: 'strict', note: 'manual block' });
   });
+
+  // Same column (ip_rules.tier, varchar(32)) as RuleDto's create path -- the
+  // two DTOs must not disagree on the limit.
+  it('rejects a tier longer than the ip_rules.tier column width (32)', async () => {
+    await expect(
+      pipe.transform({ tier: 'a'.repeat(33) }, bodyMeta),
+    ).rejects.toThrow();
+  });
+
+  it('accepts a tier at exactly the column width (32)', async () => {
+    const result: any = await pipe.transform({ tier: 'a'.repeat(32) }, bodyMeta);
+    expect(result.tier).toBe('a'.repeat(32));
+  });
 });
 
 /**
@@ -180,5 +193,18 @@ describe('ValidationPipe on RuleDto (POST ip/rules)', () => {
   it('defaults tier when the caller omits it', async () => {
     const out: any = await pipe.transform({ type: 'cidr', pattern: '10.0.0.0/24', action: 'deny' }, bodyMeta);
     expect(out.tier).toBe('default');
+  });
+
+  // ip_rules.tier is varchar(32) (see ip-rule.entity.ts); a longer value
+  // would be silently truncated by the DB instead of rejected at the edge.
+  it('rejects a tier longer than the ip_rules.tier column width (32)', async () => {
+    await expect(
+      pipe.transform({ ...valid, tier: 'a'.repeat(33) }, bodyMeta),
+    ).rejects.toThrow();
+  });
+
+  it('accepts a tier at exactly the column width (32)', async () => {
+    const out: any = await pipe.transform({ ...valid, tier: 'a'.repeat(32) }, bodyMeta);
+    expect(out.tier).toBe('a'.repeat(32));
   });
 });

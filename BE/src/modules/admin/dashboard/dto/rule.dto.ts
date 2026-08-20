@@ -24,7 +24,8 @@ export class RuleDto {
   @IsIn(['allow', 'deny'])
   action!: RuleAction;
 
-  @IsOptional() @IsString()
+  // 32 matches the ip_rules.tier column width.
+  @IsOptional() @IsString() @MaxLength(32)
   tier: string = 'default';
 
   @IsOptional() @IsString()
