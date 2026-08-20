@@ -50,4 +50,11 @@ describe('AdminLayout', () => {
     expect(localStorage.getItem(ADMIN_TOKEN_KEY)).toBeNull();
     expect(screen.getByText('LOGIN SCREEN')).toBeInTheDocument();
   });
+
+  it('links to every admin screen', () => {
+    renderLayout();
+    expect(screen.getByRole('link', { name: 'Feedback' })).toHaveAttribute('href', '/admin/feedback');
+    expect(screen.getByRole('link', { name: 'IP' })).toHaveAttribute('href', '/admin/ip');
+    expect(screen.getByRole('link', { name: 'Alerts' })).toHaveAttribute('href', '/admin/alerts');
+  });
 });

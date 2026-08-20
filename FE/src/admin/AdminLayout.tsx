@@ -5,6 +5,7 @@ import { clearToken } from './adminSession';
 const TABS = [
   { to: '/admin/feedback', label: 'Feedback' },
   { to: '/admin/ip', label: 'IP' },
+  { to: '/admin/alerts', label: 'Alerts' },
 ];
 
 /**
