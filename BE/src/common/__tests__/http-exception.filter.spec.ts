@@ -1,5 +1,5 @@
 import { HttpExceptionFilter } from '../filters/http-exception.filter';
-import { HttpException, BadRequestException, Logger } from '@nestjs/common';
+import { HttpException, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 
 describe('HttpExceptionFilter', () => {
   let filter: HttpExceptionFilter;
@@ -98,5 +98,43 @@ describe('HttpExceptionFilter', () => {
     const body = JSON.stringify(mockResponse.json.mock.calls[0][0]);
     expect(body).not.toContain('secret internal detail');
     expect(body).not.toContain('at ');
+  });
+
+  it('keeps the message of an exception thrown with a plain string', () => {
+    // Nest builds { statusCode, message, error: 'Bad Request' } here. Reading
+    // `.error` off that yields the status text, not an error object -- the
+    // message the thrower wrote is the whole point and must survive.
+    filter.catch(
+      new BadRequestException('Log path is outside the configured log directory'),
+      hostWith({ requestId: 'req-1', method: 'POST', url: '/admin/dashboard/traffic/ingest' }),
+    );
+
+    const body = mockResponse.json.mock.calls[0][0];
+    expect(body.error.message).toBe('Log path is outside the configured log directory');
+    expect(typeof body.error.code).toBe('string');
+    expect(mockResponse.status).toHaveBeenCalledWith(400);
+  });
+
+  it('keeps the message of a NotFoundException', () => {
+    filter.catch(
+      new NotFoundException('IP rule not found'),
+      hostWith({ requestId: 'req-2', method: 'DELETE', url: '/admin/dashboard/ip/rules/7' }),
+    );
+
+    const body = mockResponse.json.mock.calls[0][0];
+    expect(body.error.message).toBe('IP rule not found');
+    expect(mockResponse.status).toHaveBeenCalledWith(404);
+  });
+
+  it('still passes our own nested error object through untouched', () => {
+    filter.catch(
+      new BadRequestException({ error: { code: 'VALIDATION_ERROR', message: 'Invalid age' } }),
+      hostWith({ requestId: 'req-3', method: 'POST', url: '/x' }),
+    );
+
+    expect(mockResponse.json.mock.calls[0][0].error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Invalid age',
+    });
   });
 });
