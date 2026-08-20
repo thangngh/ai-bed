@@ -2,7 +2,7 @@
 
 > **Ngày:** 2026-08-14
 > **Phạm vi:** Theo dõi traffic ingress, LLM input/output, IP accept, kiểm soát DDoS
-> **Trạng thái:** BE hoàn tất & xanh test — FE chưa làm
+> **Trạng thái:** BE hoàn tất & xanh test — FE: IP Management + Alerts xong; Traffic Overview + LLM Usage chưa làm
 
 ## 1. Vấn đề
 
@@ -178,3 +178,5 @@ Chỉ hạ cấp qua `DELETE /ip/states/:ip` (unblock) hoặc `POST /ip/rules/ap
 | 6 | Không có index trên `traffic_hourly.hour_bucket`, `ip_states.status`, `llm_usage_event.provider` | Chưa có dữ liệu đủ lớn để đo. Thêm khi thấy chậm thật. |
 | 7 | `provider`/`model` ghi vào `llm_usage_event` là giá trị **cấu hình**, không phải provider thực sự đã trả lời | Engine chưa báo ngược provider của fallback chain. Đã ghi chú trong `engine.config.ts`. |
 | 8 | `IpRule` với `action: 'allow'` bị bỏ qua hoàn toàn | `applyIpRules()` chỉ tìm rule có `action === 'deny'` để chặn; không có nhánh nào đọc rule `allow`. Deny luôn thắng và allow không có tác dụng gì — admin có thể tạo rule allow tin rằng nó mở lại một dải IP trong khi thực tế không đổi gì. Chưa có kế hoạch triển khai allowlist thật. |
+| 9 | `IpRule.pattern` không được validate hình dạng | `RuleDto` chỉ kiểm tra kiểu, không rỗng và độ dài ≤ 64; một pattern sai cú pháp sẽ được lưu và chỉ trượt âm thầm khi `ipMatchesRule` so khớp. FE cố ý cũng không validate để hai bên không nói hai chuyện khác nhau. Sửa đúng cần một validator IP/CIDR dùng chung cho cả hai phía. |
+| 10 | Màn Alerts và màn IP không chia sẻ state | `unblockIp` và `applyIpRules` đóng alert ở BE, nhưng nếu người dùng đang mở màn Alerts ở tab khác thì tab đó chỉ bắt kịp ở nhịp auto-refresh tiếp theo — lệch tối đa 30 giây. |
