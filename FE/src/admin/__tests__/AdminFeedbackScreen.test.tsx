@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import AdminFeedbackScreen from '../AdminFeedbackScreen';
+import AdminLayout from '../AdminLayout';
 import { ADMIN_TOKEN_KEY } from '../adminSession';
 import { ApiError } from '../../utils/api';
 import type { AdminFeedbackItem, AdminFeedbackPage } from '../types';
@@ -33,7 +34,9 @@ function renderScreen(initialEntry = '/admin/feedback') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/admin/feedback" element={<AdminFeedbackScreen />} />
+        <Route element={<AdminLayout />}>
+          <Route path="/admin/feedback" element={<AdminFeedbackScreen />} />
+        </Route>
         <Route path="/admin/login" element={<p>LOGIN SCREEN</p>} />
       </Routes>
     </MemoryRouter>,
