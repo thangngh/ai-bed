@@ -4,7 +4,12 @@ import logging
 import time
 from dataclasses import dataclass
 import httpx
-from .client import BaseLLMClient, EmptyCompletionError, build_messages
+from .client import (
+    BaseLLMClient,
+    EmptyCompletionError,
+    OutputTokenLimitError,
+    build_messages,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +340,7 @@ class CustomClient(BaseLLMClient):
     @staticmethod
     def _named_adapter(name: str) -> CustomLLMAdapter | None:
         prefix = f"CUSTOM_LLM_{name.upper()}_"
+        normalized_name = name.lower()
         if not _bool_value(os.getenv(f"{prefix}ENABLED", ""), False):
             return None
 
@@ -352,7 +358,7 @@ class CustomClient(BaseLLMClient):
         # adapter-specific name. Never apply this fallback to 9router: its load
         # balancer injects replica keys itself, and forwarding the paid FPT key
         # to a local proxy would be both wrong and an avoidable secret leak.
-        if api_key is None and name.lower() == "fpt":
+        if api_key is None and normalized_name == "fpt":
             api_key = os.getenv("CUSTOM_LLM_API_KEY", "")
 
         common_temperature = os.getenv(
@@ -362,8 +368,20 @@ class CustomClient(BaseLLMClient):
         common_idle = os.getenv(
             "CUSTOM_LLM_STREAM_IDLE_SECONDS", str(DEFAULT_STREAM_IDLE_SECONDS)
         )
+        # DeepSeek-V4-Flash on FPT defaults to reasoning. A live probe against
+        # the Marketplace endpoint showed that an omitted switch spent the
+        # entire planner allowance on reasoning and emitted no JSON, while
+        # `thinking: {"type": "disabled"}` returned content immediately. Make
+        # that safe, token-efficient mode the FPT default. Other named
+        # adapters continue to omit provider-specific fields unless configured.
+        # Set the FPT value to `omit` if a future model rejects this field.
+        thinking_default = "disabled" if normalized_name == "fpt" else ""
+        thinking = os.getenv(f"{prefix}THINKING", "").strip().lower()
+        if not thinking:
+            thinking = thinking_default
+
         return CustomLLMAdapter(
-            name=name.lower(),
+            name=normalized_name,
             api_url=api_url,
             api_key=(api_key or "").strip(),
             model=model,
@@ -378,9 +396,7 @@ class CustomClient(BaseLLMClient):
                 f"{prefix}STREAM_IDLE_SECONDS",
                 DEFAULT_STREAM_IDLE_SECONDS,
             ),
-            # Named adapters default to omitting non-standard fields. 9router
-            # opts into them in its own configuration; FPT leaves them blank.
-            thinking=os.getenv(f"{prefix}THINKING", "").strip().lower(),
+            thinking=thinking,
             reasoning_effort=os.getenv(
                 f"{prefix}REASONING_EFFORT", ""
             ).strip().lower(),
@@ -461,6 +477,7 @@ class CustomClient(BaseLLMClient):
 
     async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
         last_error: Exception | None = None
+        errors: list[Exception] = []
         for adapter in self.adapters:
             try:
                 logger.info(
@@ -485,6 +502,7 @@ class CustomClient(BaseLLMClient):
                 return content
             except Exception as exc:
                 last_error = exc
+                errors.append(exc)
                 logger.warning(
                     "Custom LLM adapter failed: adapter=%s stage=%s error=%s",
                     adapter.name,
@@ -493,6 +511,15 @@ class CustomClient(BaseLLMClient):
                 )
 
         if last_error is not None:
+            # Preserve the deterministic classification only when every
+            # adapter failed for that same reason. If one adapter had a
+            # transient transport failure, replaying the chain may still help.
+            if errors and all(isinstance(e, OutputTokenLimitError) for e in errors):
+                raise last_error
+            if any(isinstance(e, OutputTokenLimitError) for e in errors):
+                raise RuntimeError(
+                    f"Custom LLM adapters had mixed failures; last error: {last_error}"
+                ) from last_error
             raise last_error
         raise RuntimeError("No enabled custom LLM adapter")
 
@@ -578,7 +605,8 @@ class CustomClient(BaseLLMClient):
             f"streamed {frames} frames, {reasoning_chars} reasoning chars, "
             f"finish_reason={finish_reason}"
         )
-        if finish_reason == "length" and not content:
+        token_limit_without_content = finish_reason == "length" and not content
+        if token_limit_without_content:
             # The failure mode this codebase has already paid for once: the
             # whole token budget spent on chain-of-thought, nothing emitted.
             # Name it, so the next reader does not go looking for a network bug.
@@ -589,6 +617,8 @@ class CustomClient(BaseLLMClient):
             )
         if usage:
             detail += f", usage={usage}"
+        if token_limit_without_content:
+            raise OutputTokenLimitError(detail)
         return content, detail
 
     async def _complete_buffered(

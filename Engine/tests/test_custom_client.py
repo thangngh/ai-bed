@@ -119,6 +119,25 @@ def _configure_named_adapters(monkeypatch, enable_9router: bool):
 
 
 class TestNamedAdapters:
+    def test_fpt_defaults_to_thinking_disabled(self, monkeypatch):
+        _configure_named_adapters(monkeypatch, enable_9router=False)
+        monkeypatch.delenv("CUSTOM_LLM_FPT_THINKING", raising=False)
+
+        client = CustomClient()
+
+        assert client.adapters[0].thinking == "disabled"
+        assert client._payload("hi", stage="planner")["thinking"] == {
+            "type": "disabled"
+        }
+
+    def test_fpt_thinking_field_can_be_omitted_explicitly(self, monkeypatch):
+        _configure_named_adapters(monkeypatch, enable_9router=False)
+        monkeypatch.setenv("CUSTOM_LLM_FPT_THINKING", "omit")
+
+        client = CustomClient()
+
+        assert "thinking" not in client._payload("hi", stage="planner")
+
     def test_disabled_9router_is_not_constructed(self, monkeypatch):
         _configure_named_adapters(monkeypatch, enable_9router=False)
 
