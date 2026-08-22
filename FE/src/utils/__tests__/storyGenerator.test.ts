@@ -41,6 +41,7 @@ describe('storyGenerator', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/story/create');
     expect(init.method).toBe('POST');
+    expect(init.headers['X-Story-Heartbeat']).toBe('1');
     expect(JSON.parse(init.body)).toEqual({
       child_id: 'c1',
       child_name: 'An',
@@ -53,6 +54,7 @@ describe('storyGenerator', () => {
       favorite_character: 'Mèo',
     });
     expect(story.title).toBe('Chú thỏ dũng cảm');
+    expect(story.childId).toBe('c1');
     expect(story.segments.opening).toBe('Ngày xửa...');
   });
 
@@ -153,5 +155,17 @@ describe('storyGenerator', () => {
 
     const input: StoryFormInput = { childId: 'c1', childName: 'An', childAge: 4, favoriteTopic: 'Động vật' };
     await expect(generateBedtimeStory(input)).rejects.toThrow('ENGINE_ERROR');
+  });
+
+  it('reports a late error carried by a heartbeat response body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        error: { code: 'STORY_GENERATION_FAILED', message: 'Generation failed after headers' },
+      }),
+    }));
+
+    const input: StoryFormInput = { childId: 'c1', childName: 'An', childAge: 4, favoriteTopic: 'Động vật' };
+    await expect(generateBedtimeStory(input)).rejects.toThrow('STORY_GENERATION_FAILED');
   });
 });

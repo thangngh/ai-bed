@@ -2,6 +2,34 @@
 
 Tạo câu chuyện trước giờ ngủ cho bé 3-6 tuổi bằng AI, hoàn toàn bằng tiếng Việt.
 
+## 💛 Ủng hộ dự án & minh bạch
+
+AI Bedtime là dự án hướng tới trải nghiệm kể chuyện an toàn, dễ tiếp cận và
+bền vững cho các gia đình Việt. Bạn có thể đồng hành mà không nhất thiết phải
+đóng góp tài chính:
+
+| Hình thức | Bạn có thể làm gì | Giá trị mang lại |
+|---|---|---|
+| ⭐ Lan toả | Star repository, chia sẻ dự án và góp ý trải nghiệm | Giúp dự án tiếp cận thêm gia đình |
+| 🐛 Chất lượng | Báo lỗi kèm bước tái hiện hoặc gửi pull request | Làm sản phẩm ổn định và an toàn hơn |
+| 📚 Nội dung | Góp ý về ngôn ngữ, độ tuổi và tính phù hợp của truyện | Nâng chất lượng nội dung cho trẻ em |
+| 🖥️ Hạ tầng | Tài trợ API LLM, máy chủ hoặc chi phí vận hành | Duy trì dịch vụ và giảm thời gian chờ |
+
+### Nguyên tắc minh bạch
+
+- Mọi khoản hỗ trợ chỉ được tiếp nhận qua kênh chính thức được công bố trong
+  repository này; dự án **không yêu cầu API key, mật khẩu hoặc token cá nhân**.
+- Khoản hỗ trợ tài chính, nếu được mở, sẽ có mục đích sử dụng rõ ràng và báo cáo
+  định kỳ theo các nhóm: hạ tầng, API AI, tên miền/bảo mật và phát triển sản phẩm.
+- Tài trợ hiện vật hoặc dịch vụ được ghi nhận cùng phạm vi, thời hạn và điều kiện
+  sử dụng; không đổi lấy quyền truy cập dữ liệu người dùng.
+- Nhà tài trợ không được can thiệp vào tiêu chuẩn an toàn nội dung, quyền riêng tư
+  hoặc ưu tiên thương mại trái với lợi ích của trẻ em và gia đình.
+
+> **Trạng thái hiện tại:** dự án chưa công bố kênh nhận ủng hộ tài chính. Hãy cảnh
+> giác với mọi lời mời chuyển tiền không xuất hiện trong README hoặc thông báo
+> chính thức của repository này.
+
 ## Architecture
 
 ```
@@ -119,7 +147,7 @@ Start the Engine and the BE first: the SPA has no fallback story generator.
 |---|---|---|
 | PORT | 3001 | BE server port |
 | ENGINE_URL | http://localhost:8000 | Engine base URL (compose overrides it to `http://engine:8000`) |
-| ENGINE_TIMEOUT_MS | 60000 | Must stay above the Engine's `PIPELINE_BUDGET_SECONDS` so a slow run returns a fallback story, not a 502. The HA overlay raises it to 150000 |
+| ENGINE_TIMEOUT_MS | 60000 | Must stay above the Engine's `PIPELINE_BUDGET_SECONDS` so a slow run returns a fallback story, not a 502. The HA overlay raises it to 230000 |
 | DB_PATH | ./data | SQLite files directory |
 | QUEUE_MAX_CONCURRENT | 2 | Bottleneck per-tenant limit |
 | QUEUE_MIN_TIME_MS | 6000 | Minimum time between jobs |
@@ -139,16 +167,18 @@ Start the Engine and the BE first: the SPA has no fallback story generator.
 | OPENROUTER_MODEL | google/gemma-4-26b-a4b-it:free | The free model whose output the writer validator accepts |
 | CUSTOM_LLM_URL | - | Custom OpenAI-compatible URL (the 9router balancer, under the HA overlay) |
 | CUSTOM_LLM_API_KEY | - | Leave empty under the HA overlay: the balancer injects the per-replica key |
-| CUSTOM_LLM_MODEL | ag/gemini-3-flash-agent | Needs an Antigravity account connected in 9router; the overlay defaults to `oc/deepseek-v4-flash-free`, the fastest of the anonymous models |
-| CUSTOM_LLM_MAX_TOKENS | 4096 | Reasoning models spend this budget *before* emitting content: at 4096 the writer came back `finish_reason: length` with an empty body. The 9router overlay sets 16000 |
+| CUSTOM_LLM_MODEL | ag/gemini-3-flash-agent | Needs an Antigravity account connected in 9router; the overlay pins the currently working anonymous model `oc/nemotron-3-ultra-free` |
+| CUSTOM_LLM_MAX_TOKENS | 4096 | Completion ceiling, not fixed usage. With thinking and reasoning disabled, the HA planner/writer completed at roughly 600 output tokens each |
+| CUSTOM_LLM_REASONING_EFFORT | none under 9router HA | Suppresses OpenAI-style reasoning that the separate `thinking` field does not control |
 | CUSTOM_LLM_STREAM | true | Request `stream: true`. Not for speed (streamed and buffered average the same) but so silence becomes meaningful: a stream emits every 1–2s even while the model is only reasoning, where a buffered call is silent for its whole 26–40s. A proxy that ignores the flag still works |
 | CUSTOM_LLM_STREAM_IDLE_SECONDS | 60 | How long a stream may go silent before it is abandoned — an *inactivity* timeout, not a deadline. Largest gap ever measured between chunks: 1.7s |
 
 ### Engine (.env), continued
 | Variable | Default | Description |
 |---|---|---|
-| PIPELINE_BUDGET_SECONDS | 45 | Whole-generation deadline; a run that exceeds it returns the fallback story. The HA overlay raises it to 120 for the free OpenRouter tier |
-| MEMORY_EXTRACT_TIMEOUT_SECONDS | 20 | Memory extraction runs *after* the pipeline, outside its budget; this bounds it so a finished story is not delayed |
+| PIPELINE_BUDGET_SECONDS | 45 | Whole-generation deadline; a run that exceeds it returns the fallback story. The HA overlay raises it to 210 for the free reasoning model |
+| MEMORY_EXTRACT_ENABLED | true in Engine, false under 9router HA | Set false to skip the optional fourth LLM call; planner, writer, and safety reviewer are unchanged |
+| MEMORY_EXTRACT_TIMEOUT_SECONDS | 20 in Engine, 5 under 9router HA | Only applies when memory extraction is enabled; bounds this best-effort call after the story is complete |
 
 ### Timeouts, outermost last
 
@@ -156,8 +186,8 @@ Each layer must allow more time than the one inside it, or a slow-but-working
 generation is reported as a failure by whichever layer gives up first:
 
 ```
-PIPELINE_BUDGET_SECONDS (150) + MEMORY_EXTRACT_TIMEOUT_SECONDS (15)
-  < ENGINE_TIMEOUT_MS (180s, BE)
+PIPELINE_BUDGET_SECONDS (210) + MEMORY_EXTRACT_TIMEOUT_SECONDS (0 when disabled)
+  < ENGINE_TIMEOUT_MS (230s, BE)
   < proxy_read_timeout (240s, FE/nginx and vite)
   ≤ STORY_TIMEOUT_MS (240s, the SPA's fetch)
 ```

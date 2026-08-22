@@ -57,9 +57,35 @@ export class ChildController {
     return this.toResponse(await this.childService.update(childId, tenantId, dto));
   }
 
+  /**
+   * POST compatibility route for deployments whose upstream proxy blocks PUT.
+   * Keep the PUT route above for existing API consumers.
+   */
+  @Post(':childId/update')
+  @HttpCode(200)
+  async updateViaPost(
+    @Param('childId') childId: string,
+    @Body() dto: UpdateChildProfileDto,
+    @Req() req: Request,
+  ) {
+    const tenantId = (req as any).tenantId;
+    return this.toResponse(await this.childService.update(childId, tenantId, dto));
+  }
+
   @Delete(':childId')
   @HttpCode(204)
   async delete(@Param('childId') childId: string, @Req() req: Request) {
+    const tenantId = (req as any).tenantId;
+    await this.childService.delete(childId, tenantId);
+  }
+
+  /**
+   * POST compatibility route for deployments whose upstream proxy blocks DELETE.
+   * It intentionally keeps the original 204/no-body response contract.
+   */
+  @Post(':childId/delete')
+  @HttpCode(204)
+  async deleteViaPost(@Param('childId') childId: string, @Req() req: Request) {
     const tenantId = (req as any).tenantId;
     await this.childService.delete(childId, tenantId);
   }

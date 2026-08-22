@@ -320,15 +320,31 @@ export const StoryViewScreen: React.FC<StoryViewScreenProps> = ({
           )}
 
           {/* Moral Lesson Summary Box */}
-          <div className="p-5 sm:p-6 rounded-2xl border bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-100 space-y-2">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-amber-600 dark:text-amber-300 flex items-center gap-1.5">
-              <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
+          <section
+            aria-labelledby="moral-lesson-title"
+            className={`p-5 sm:p-6 rounded-2xl border space-y-2 ${
+              isNightMode
+                ? 'bg-slate-950 border-slate-700 text-slate-100'
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-950'
+            }`}
+          >
+            <span
+              id="moral-lesson-title"
+              className={`text-xs font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${
+                isNightMode ? 'text-amber-200' : 'text-amber-700'
+              }`}
+            >
+              <Heart
+                className={`w-4 h-4 ${
+                  isNightMode ? 'text-amber-300' : 'text-rose-500 fill-rose-500'
+                }`}
+              />
               <span>Bài học nhân văn gửi gắm</span>
             </span>
-            <p className="text-sm sm:text-base font-semibold leading-relaxed">
+            <p className="text-sm sm:text-base font-medium leading-relaxed">
               {story.segments.moralSummary}
             </p>
-          </div>
+          </section>
         </div>
       </div>
 

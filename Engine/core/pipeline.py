@@ -415,6 +415,15 @@ class StoryPipeline:
                                 "detail": "Review skipped: out of time budget"}],
                     "quality_score": 0,
                 }
+            except Exception as e:
+                # A provider can return HTTP 200 with an empty completion. The
+                # router correctly rejects that body, but the resulting
+                # FallbackTriggered used to escape this loop and discard an
+                # otherwise valid, already-written story immediately. Treat a
+                # transient provider failure like any other unusable review:
+                # retry once, then fail closed as UNREVIEWED below.
+                logger.warning("Reviewer attempt %d failed: %s", attempt, e)
+                continue
             try:
                 parsed = extract_json_block(raw)
             except Exception:

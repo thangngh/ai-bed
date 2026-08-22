@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS admin_users (
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   last_login_at TEXT
 );
-UPDATE admin_users SET password_hash = '{hash_val}' WHERE username = 'sysadmin';
+UPDATE admin_users SET password_hash = '{hash_val}' WHERE username = 'admin';
 INSERT INTO admin_users(admin_id, username, password_hash)
-  SELECT lower(hex(randomblob(16))), 'sysadmin', '{hash_val}' WHERE (SELECT changes() = 0);
+  SELECT lower(hex(randomblob(16))), 'admin', '{hash_val}' WHERE (SELECT changes() = 0);
 COMMIT;
 """
 # Run sqlite in a temporary alpine container that mounts the volume
@@ -34,5 +34,5 @@ except subprocess.CalledProcessError as e:
     sys.exit(1)
 # save credentials
 with open('test-results/sysadmin_credentials.txt','w') as f:
-    f.write(f"username: sysadmin\npassword: {pw}\n")
+    f.write(f"username: admin\npassword: {pw}\n")
 print('Saved credentials to test-results/sysadmin_credentials.txt')

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from .prompts.registry import PromptRegistry
 from .pipeline import StoryPipeline
@@ -10,12 +11,20 @@ from .llm.router import LLMRouter
 logger = logging.getLogger(__name__)
 
 
+def _memory_extract_enabled() -> bool:
+    """Whether to spend a fourth LLM call extracting optional memories."""
+    return os.getenv("MEMORY_EXTRACT_ENABLED", "true").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 class StoryOrchestrator:
     def __init__(self):
         self.registry = PromptRegistry()
         self.router = LLMRouter()
         self.pipeline = StoryPipeline(self.router)
         self.extractor = MemoryExtractor(self.router)
+        self.memory_extract_enabled = _memory_extract_enabled()
 
     async def generate(self, data: dict) -> dict:
         start = time.time()
@@ -35,7 +44,11 @@ class StoryOrchestrator:
         logger.debug("Assembled prompts: %s", prompts)
         result = await self.pipeline.run(prompts)
         memories = []
-        if result.success and not result.is_fallback:
+        # Memory extraction is useful personalization, but it is a separate
+        # fourth LLM call after the story has already passed its safety review.
+        # Token-conscious deployments can disable it without changing the
+        # planner, writer, reviewer, or the story returned to the child.
+        if self.memory_extract_enabled and result.success and not result.is_fallback:
             story_data = {"title": result.title, "content": result.content}
             memories = await self.extractor.extract(story_data, data.get("language", "vi"), is_fallback=result.is_fallback)
 

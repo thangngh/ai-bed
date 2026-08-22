@@ -312,6 +312,22 @@ class TestStreaming:
         assert "thinking" not in seen
 
     @pytest.mark.asyncio
+    async def test_reasoning_effort_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("CUSTOM_LLM_REASONING_EFFORT", "none")
+        seen = {}
+        client = self._client(monkeypatch, _sse(_delta("ok")), seen=seen)
+        await client.complete("hi")
+        assert seen["reasoning_effort"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_effort_is_omitted_by_default(self, monkeypatch):
+        monkeypatch.delenv("CUSTOM_LLM_REASONING_EFFORT", raising=False)
+        seen = {}
+        client = self._client(monkeypatch, _sse(_delta("ok")), seen=seen)
+        await client.complete("hi")
+        assert "reasoning_effort" not in seen
+
+    @pytest.mark.asyncio
     async def test_assembles_delta_frames(self, monkeypatch):
         body = _sse(
             OPENING_FRAME,

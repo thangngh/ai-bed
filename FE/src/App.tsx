@@ -10,6 +10,7 @@ import { ProfileManager } from './components/ProfileManager';
 import { ErrorScreen } from './components/ErrorScreen';
 import { ChildSelector } from './components/ChildSelector';
 import { AnalyticsScreen } from './components/AnalyticsScreen';
+import { SupportModal } from './components/SupportModal';
 import { AppScreen, BedtimeStory, FeedbackData, StoryFormInput, ChildProfile } from './types';
 import { SAMPLE_STORIES } from './data/sampleStories';
 import { generateBedtimeStory, mapSectionsToSegments } from './utils/storyGenerator';
@@ -37,6 +38,7 @@ export default function App() {
   });
 
   const [isSavedModalOpen, setIsSavedModalOpen] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [beStories, setBeStories] = useState<BedtimeStory[]>([]);
   const [isLoadingStories, setIsLoadingStories] = useState(false);
 
@@ -97,14 +99,15 @@ export default function App() {
     setIsLoadingStories(true);
     try {
       const params = new URLSearchParams({ limit: '50' });
-      if (activeChild) params.set('child_name', activeChild.childName);
+      if (activeChild) params.set('child_id', activeChild.childId);
       const data = await apiClient<any>(`/story/latest?${params.toString()}`);
       const list = data.stories || [];
       setBeStories(list.map((s: any) => ({
         id: `be-${s.story_id}`,
+        childId: s.child_id || activeChild?.childId,
         title: s.title,
-        childName: '',
-        childAge: 0,
+        childName: activeChild?.childName || '',
+        childAge: activeChild?.age || 0,
         topic: s.theme || '',
         segments: {
           opening: s.title,
@@ -205,6 +208,7 @@ export default function App() {
       const payload: Record<string, any> = {
         // `be-` is a client-side marker; the BE row is keyed by the bare uuid.
         story_id: feedback.storyId.replace(/^be-/, ''),
+        child_id: activeStory?.childId || activeChild?.childId,
         child_name: activeStory?.childName || '',
         rating: feedback.suitabilityRating,
         note: feedback.comment || '',
@@ -246,6 +250,7 @@ export default function App() {
         const segments = mapSectionsToSegments(sections);
         setActiveStory({
           id: story.id,
+          childId: fullStory.child_id || story.childId,
           title: fullStory.title,
           childName: fullStory.child_name || '',
           childAge: fullStory.age || 4,
@@ -282,6 +287,7 @@ export default function App() {
           fetchStoriesFromBE();
           setIsSavedModalOpen(true);
         }}
+        onOpenSupport={() => setIsSupportModalOpen(true)}
         activeChild={activeChild}
         onOpenChildSelector={() => setIsChildSelectorOpen(true)}
         isOffline={isOffline}
@@ -338,6 +344,7 @@ export default function App() {
             childName={activeStory.childName}
             onSubmitFeedback={handleFeedbackSubmit}
             onStartNewStory={() => setCurrentScreen('form')}
+            onOpenSupport={() => setIsSupportModalOpen(true)}
             isNightMode={isNightMode}
           />
         )}
@@ -385,8 +392,22 @@ export default function App() {
           isNightMode ? 'border-slate-800 text-slate-400' : 'border-amber-200/60 text-amber-900'
         }`}
       >
-        <p>Bedtime Story Companion • Dành cho giấc ngủ dịu dạo của bé 3-6 tuổi</p>
+        <p>Bedtime Story Companion • Dành cho giấc ngủ dịu dàng của bé 3-6 tuổi</p>
+        <button
+          id="btn-footer-open-support"
+          type="button"
+          onClick={() => setIsSupportModalOpen(true)}
+          className="mt-2 font-semibold text-indigo-500 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+        >
+          Ủng hộ dự án
+        </button>
       </footer>
+
+      <SupportModal
+        isOpen={isSupportModalOpen}
+        onClose={() => setIsSupportModalOpen(false)}
+        isNightMode={isNightMode}
+      />
 
       {/* Child Selector Modal */}
       <ChildSelector

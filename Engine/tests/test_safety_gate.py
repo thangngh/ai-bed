@@ -222,6 +222,26 @@ class TestVerdictGate:
         assert self._gate({"safety_verdict": "approved"}) == ("APPROVED", "")
 
 
+class TestReviewerRetry:
+    @pytest.mark.asyncio
+    async def test_transient_empty_provider_failure_is_retried_once(self):
+        def reviewer(call_n):
+            if call_n == 1:
+                raise Exception("provider returned HTTP 200 with empty content")
+            return REVIEW_APPROVED
+
+        router = RecordingRouter({
+            "planner": PLANNER_OK,
+            "writer": WRITER_OK,
+            "reviewer": reviewer,
+        })
+
+        result = await StoryPipeline(router).run(real_prompts())
+
+        assert result.is_fallback is False
+        assert result.safety_verdict == "APPROVED"
+        assert router.count("reviewer") == 2
+
 class TestGateEndToEnd:
     @pytest.mark.asyncio
     async def test_safety_flag_falls_back_instead_of_shipping(self):

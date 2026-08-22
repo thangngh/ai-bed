@@ -57,8 +57,12 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - isolated
-      - ai-bed_default
+      isolated:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME:-ai-bed}-engine
+      ai-bed_default:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME:-ai-bed}-engine
 
   backend:
     build:
@@ -75,7 +79,11 @@ services:
       # BE/.env holds the host-development value (localhost:8000), which inside
       # this container points at the container itself. `environment` wins over
       # `env_file`, so the compose stack reaches the Engine by service name.
-      ENGINE_URL: http://engine:8000
+      # `engine` is not unique when another Compose project from this repo is
+      # attached to the shared external networks (for example the isolated
+      # test stack). Docker DNS then returns either container at random. A
+      # project-qualified alias keeps each BE pinned to its own Engine.
+      ENGINE_URL: http://${COMPOSE_PROJECT_NAME:-ai-bed}-engine:8000
       ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-60000}
       ENGINE_API_KEY: ${ENGINE_API_KEY:-}
     depends_on:
@@ -110,8 +118,6 @@ services:
     # cannot bind a privileged port; the host side is still 80.
     ports:
       - "${FRONTEND_PORT:-80}:8080"
-    volumes:
-      - ./.nginx-admin.htpasswd:/etc/nginx/admin.htpasswd:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -139,7 +145,7 @@ volumes:
   
 networks:
   isolated:
-    external:
-      name: ai-bed-isolated_default
+    name: ai-bed-isolated_default
+    external: true
   ai-bed_default:
     external: true

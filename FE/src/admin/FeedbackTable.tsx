@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AdminFeedbackItem } from './types';
+import { formatVietnamTime } from '../utils/vietnamTime';
 
 /** A missing story or child is a valid state, not an error. Never print "null". */
 const DASH = '—';
@@ -16,7 +17,7 @@ function bool(value: number | null): React.ReactNode {
   return DASH; // wants_more uses -1 for "không rõ"
 }
 
-const HEADERS = ['Thời gian', 'Đánh giá', 'Bé', 'Truyện', 'Nghe hết', 'Muốn thêm', 'Ghi chú'];
+const HEADERS = ['Thời gian (VN)', 'Đánh giá', 'Bé', 'Truyện', 'Nghe hết', 'Muốn thêm', 'Ghi chú'];
 
 export default function FeedbackTable({ items }: { items: AdminFeedbackItem[] }) {
   return (
@@ -34,9 +35,7 @@ export default function FeedbackTable({ items }: { items: AdminFeedbackItem[] })
         <tbody>
           {items.map((item) => (
             <tr key={item.feedback_id} className="border-t border-slate-100 align-top">
-              {/* created_at is SQLite's 'YYYY-MM-DD HH:MM:SS' in UTC, not ISO
-                  8601, so it is shown as stored rather than reformatted. */}
-              <td className="px-3 py-2 whitespace-nowrap">{text(item.created_at)}</td>
+              <td className="px-3 py-2 whitespace-nowrap">{text(formatVietnamTime(item.created_at))}</td>
               <td className="px-3 py-2">{text(item.rating)}</td>
               <td className="px-3 py-2">{text(item.child_name)}</td>
               <td className="px-3 py-2">{text(item.story_title)}</td>

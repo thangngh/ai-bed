@@ -7,6 +7,7 @@ interface FeedbackScreenProps {
   childName: string;
   onSubmitFeedback: (data: FeedbackData) => void;
   onStartNewStory: () => void;
+  onOpenSupport: () => void;
   isNightMode: boolean;
 }
 
@@ -15,6 +16,7 @@ export const FeedbackScreen: React.FC<FeedbackScreenProps> = ({
   childName,
   onSubmitFeedback,
   onStartNewStory,
+  onOpenSupport,
   isNightMode,
 }) => {
   const [listenedUntilEnd, setListenedUntilEnd] = useState<boolean | null>(true);
@@ -73,6 +75,31 @@ export const FeedbackScreen: React.FC<FeedbackScreenProps> = ({
             <Sparkles className="w-4 h-4 text-amber-300" />
             <span>Tạo truyện mới cho bé</span>
           </button>
+        </div>
+
+        <div className={`rounded-2xl border p-4 text-left ${
+          isNightMode
+            ? 'border-slate-700 bg-slate-900/60 text-slate-200'
+            : 'border-rose-200 bg-rose-50/60 text-amber-950'
+        }`}>
+          <div className="flex items-start gap-3">
+            <Heart className="mt-0.5 h-5 w-5 shrink-0 text-rose-500" />
+            <div className="space-y-2">
+              <p className="text-sm font-bold">Giúp những câu chuyện tiếp tục được kể</p>
+              <p className={`text-xs leading-relaxed ${isNightMode ? 'text-slate-300' : 'text-amber-800/80'}`}>
+                Nếu dự án hữu ích với gia đình mình, ba mẹ có thể ủng hộ tùy tâm cho chi phí vận hành.
+                Việc ủng hộ không ảnh hưởng đến quyền sử dụng ứng dụng.
+              </p>
+              <button
+                id="btn-feedback-open-support"
+                type="button"
+                onClick={onOpenSupport}
+                className="text-xs font-bold text-indigo-500 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+              >
+                Xem mã VietQR
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );

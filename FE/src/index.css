@@ -94,3 +94,59 @@
   --leading-tight: 1.35;
   --leading-snug: 1.45;
 }
+
+@keyframes support-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes support-card-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.support-modal-backdrop {
+  animation: support-backdrop-in 180ms ease-out both;
+}
+
+.support-modal-card {
+  max-height: calc(100vh - 1rem);
+  max-height: calc(100dvh - 1rem);
+  animation: support-card-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.support-qr-compact {
+  width: clamp(7.25rem, 23vh, 11rem);
+  width: clamp(7.25rem, 23dvh, 11rem);
+}
+
+@media (min-width: 40rem) {
+  .support-modal-card {
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+  }
+}
+
+/* Short landscape phones need the same side-by-side arrangement as tablets,
+   even though their CSS width can sit below Tailwind's `sm` breakpoint. */
+@media (max-height: 34rem) and (min-width: 30rem) {
+  .support-payment-compact {
+    grid-template-columns: minmax(7rem, 8rem) minmax(0, 1fr);
+  }
+
+  .support-qr-compact {
+    width: clamp(6rem, 30vh, 8rem);
+    width: clamp(6rem, 30dvh, 8rem);
+  }
+
+  .support-modal-subtitle {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .support-modal-backdrop,
+  .support-modal-card {
+    animation: none;
+  }
+}

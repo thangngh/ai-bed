@@ -43,9 +43,10 @@ describe('FeedbackTable', () => {
     expect(within(row).getByText('Không')).toBeInTheDocument();
   });
 
-  it('renders the timestamp verbatim, since it is not ISO 8601', () => {
+  it('renders the UTC SQLite timestamp in Vietnam time', () => {
     render(<FeedbackTable items={[base]} />);
-    expect(screen.getByText('2026-08-06 14:22:01')).toBeInTheDocument();
+    expect(screen.getByText('06/08/2026 21:22:01')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Thời gian (VN)' })).toBeInTheDocument();
   });
 
   it('renders only the header when there are no items', () => {
