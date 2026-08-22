@@ -80,6 +80,14 @@ class TestParseSseResponse:
     def test_bare_response_key(self):
         assert parse_sse_response('{"response": "hi"}') == "hi"
 
+    def test_fpt_top_level_content_stream(self):
+        body = (
+            'data: {"content":"Xin "}\n\n'
+            'data: {"content":"chào"}\n\n'
+            'data: [DONE]\n\n'
+        )
+        assert parse_sse_response(body) == "Xin chào"
+
 
 def _mock_async_client(monkeypatch, handler):
     """Make CustomClient.complete use httpx.MockTransport to avoid network."""
@@ -90,6 +98,60 @@ def _mock_async_client(monkeypatch, handler):
             super().__init__(*a, **k, transport=_httpx.MockTransport(handler))
 
     monkeypatch.setattr(_httpx, "AsyncClient", Fake)
+
+
+def _configure_named_adapters(monkeypatch, enable_9router: bool):
+    monkeypatch.setenv("CUSTOM_LLM_ADAPTERS", "fpt,9router")
+    monkeypatch.setenv("CUSTOM_LLM_FPT_ENABLED", "true")
+    monkeypatch.setenv("CUSTOM_LLM_FPT_URL", "https://fpt.example/chat/completions")
+    monkeypatch.setenv("CUSTOM_LLM_FPT_API_KEY", "fpt-paid-key")
+    monkeypatch.setenv("CUSTOM_LLM_FPT_MODEL", "DeepSeek-V4-Flash")
+    monkeypatch.setenv("CUSTOM_LLM_FPT_STREAM", "false")
+    monkeypatch.setenv(
+        "CUSTOM_LLM_9ROUTER_ENABLED", "true" if enable_9router else "false"
+    )
+    monkeypatch.setenv(
+        "CUSTOM_LLM_9ROUTER_URL", "http://9router-lb:20128/v1/chat/completions"
+    )
+    monkeypatch.setenv("CUSTOM_LLM_9ROUTER_API_KEY", "")
+    monkeypatch.setenv("CUSTOM_LLM_9ROUTER_MODEL", "oc/nemotron-free")
+    monkeypatch.setenv("CUSTOM_LLM_9ROUTER_STREAM", "false")
+
+
+class TestNamedAdapters:
+    def test_disabled_9router_is_not_constructed(self, monkeypatch):
+        _configure_named_adapters(monkeypatch, enable_9router=False)
+
+        client = CustomClient()
+
+        assert [adapter.name for adapter in client.adapters] == ["fpt"]
+        assert client.api_url == "https://fpt.example/chat/completions"
+
+    @pytest.mark.asyncio
+    async def test_enabled_9router_is_an_adapter_fallback(self, monkeypatch):
+        import httpx as _httpx
+
+        _configure_named_adapters(monkeypatch, enable_9router=True)
+        calls = []
+
+        def handler(request):
+            calls.append((request.url.host, request.headers.get("authorization")))
+            if request.url.host == "fpt.example":
+                return _httpx.Response(503, text="FPT temporarily unavailable")
+            return _httpx.Response(
+                200,
+                text='{"choices":[{"message":{"content":"9router fallback"}}]}',
+            )
+
+        _mock_async_client(monkeypatch, handler)
+
+        result = await CustomClient().complete("hi", stage="planner")
+
+        assert result == "9router fallback"
+        assert calls == [
+            ("fpt.example", "Bearer fpt-paid-key"),
+            ("9router-lb", None),
+        ]
 
 
 @pytest.mark.asyncio
@@ -165,6 +227,22 @@ class TestModelAndTuning:
         import asyncio
         asyncio.run(CustomClient().complete("hi"))
         assert seen["max_tokens"] == 4096
+
+    @pytest.mark.parametrize(
+        ("stage", "env_name", "limit"),
+        [
+            ("planner", "CUSTOM_LLM_PLANNER_MAX_TOKENS", 2048),
+            ("writer", "CUSTOM_LLM_WRITER_MAX_TOKENS", 3072),
+            ("reviewer", "CUSTOM_LLM_REVIEWER_MAX_TOKENS", 1024),
+            ("memory_ext", "CUSTOM_LLM_MEMORY_MAX_TOKENS", 1024),
+        ],
+    )
+    def test_stage_specific_output_ceiling(self, monkeypatch, stage, env_name, limit):
+        monkeypatch.setenv("CUSTOM_LLM_URL", "http://proxy/v1/chat/completions")
+        monkeypatch.setenv("CUSTOM_LLM_MAX_TOKENS", "4096")
+        monkeypatch.setenv(env_name, str(limit))
+
+        assert CustomClient()._payload("hi", stage=stage)["max_tokens"] == limit
 
     def test_stream_idle_timeout_is_far_above_the_observed_gap(self):
         # Largest measured gap between chunks on a streamed writer call was
@@ -290,6 +368,7 @@ class TestStreaming:
     async def test_thinking_disabled_by_default(self, monkeypatch):
         # Measured on the 9router stack: the oc/ reasoning backends complete
         # faster with thinking off, and nemotron returns 400 with it on.
+        monkeypatch.delenv("CUSTOM_LLM_THINKING", raising=False)
         seen = {}
         client = self._client(monkeypatch, _sse(_delta("ok")), seen=seen)
         await client.complete("hi")

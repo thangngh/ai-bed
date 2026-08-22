@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import time
+from dataclasses import dataclass
 import httpx
 from .client import BaseLLMClient, EmptyCompletionError, build_messages
 
@@ -36,6 +37,13 @@ DEFAULT_TIMEOUT_SECONDS = 300
 # is still only thinking. 60s is roughly 35x the observed worst gap, so it
 # fires on a dead stream and never on a slow one.
 DEFAULT_STREAM_IDLE_SECONDS = 60
+
+STAGE_MAX_TOKEN_ENVS = {
+    "planner": "CUSTOM_LLM_PLANNER_MAX_TOKENS",
+    "writer": "CUSTOM_LLM_WRITER_MAX_TOKENS",
+    "reviewer": "CUSTOM_LLM_REVIEWER_MAX_TOKENS",
+    "memory_ext": "CUSTOM_LLM_MEMORY_MAX_TOKENS",
+}
 
 
 def _env(preferred: str, legacy: str) -> str:
@@ -76,6 +84,50 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _bool_value(raw: str, default: bool) -> bool:
+    value = raw.strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
+
+
+def _int_value(raw: str, name: str, default: int) -> int:
+    try:
+        return int(raw) if raw.strip() else default
+    except ValueError:
+        logger.warning("Invalid %s=%r, using %d", name, raw, default)
+        return default
+
+
+def _float_value(raw: str, name: str, default: float) -> float:
+    try:
+        return float(raw) if raw.strip() else default
+    except ValueError:
+        logger.warning("Invalid %s=%r, using %s", name, raw, default)
+        return default
+
+
+@dataclass(frozen=True)
+class CustomLLMAdapter:
+    """One OpenAI-compatible connection behind the `custom` provider.
+
+    The outer LLMRouter still sees a single provider named `custom`; this
+    adapter layer owns endpoint-level selection such as FPT first and a local
+    9router as an optional fallback. Disabled adapters are never constructed,
+    so merely retaining their URL and model cannot send them traffic.
+    """
+
+    name: str
+    api_url: str
+    api_key: str
+    model: str
+    temperature: float
+    stream: bool
+    stream_idle: int
+    thinking: str
+    reasoning_effort: str
+
+
 class StreamFrame:
     """One decoded `data:` frame of a chat-completion stream.
 
@@ -101,7 +153,14 @@ class StreamFrame:
         message = choice.get("message") or {}
         # `or ""` rather than a default: the value is explicitly null on some
         # frames, and None would break the concatenation below.
-        self.content = delta.get("content") or message.get("content") or ""
+        # FPT AI Marketplace documents top-level {"content": "..."} SSE
+        # chunks in addition to the standard OpenAI choices[].delta shape.
+        self.content = (
+            delta.get("content")
+            or message.get("content")
+            or parsed.get("content")
+            or ""
+        )
         self.reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
         self.finish_reason = choice.get("finish_reason")
         self.usage = parsed.get("usage")
@@ -148,6 +207,9 @@ def _content_from_payload(parsed: dict) -> str:
     response = parsed.get("response")
     if response:
         return response
+    content = parsed.get("content")
+    if content:
+        return content
     return ""
 
 
@@ -237,45 +299,144 @@ def parse_sse_response(body: str) -> str:
 
 class CustomClient(BaseLLMClient):
     def __init__(self):
-        self.api_url = os.getenv("CUSTOM_LLM_URL", "")
-        self.api_key = os.getenv("CUSTOM_LLM_API_KEY", "")
-        # Pin a concrete backend, not the `opencode` combo: that combo
-        # round-robins over heterogeneous models (measured 5.9s, 7.2s and
-        # 40.7s on identical prompts, the slowest ignoring the Vietnamese-only
-        # instruction), so one name gives unpredictable latency and quality.
-        #
-        # Some `oc/` free models spend the token budget on reasoning before
-        # content. Pin a model known to work and disable reasoning in the
-        # deployment profile; otherwise an undersized budget can return empty
-        # content with finish_reason="length".
-        self.model = os.getenv("CUSTOM_LLM_MODEL", "ag/gemini-3-flash-agent")
+        self.adapters = self._load_adapters()
 
-        # Ask for a stream by default. It costs nothing when the proxy does not
-        # support it -- an ignored `stream: true` comes back as an ordinary
-        # single-object body, which _read_stream still parses -- and it buys an
-        # inactivity timeout on the providers that do. See
-        # DEFAULT_STREAM_IDLE_SECONDS.
-        self.stream = _bool_env("CUSTOM_LLM_STREAM", True)
-        self.stream_idle = _int_env(
-            "CUSTOM_LLM_STREAM_IDLE_SECONDS", "", DEFAULT_STREAM_IDLE_SECONDS
+        # Compatibility attributes for diagnostics and older callers. Actual
+        # requests receive an immutable adapter explicitly, so concurrent calls
+        # cannot race by changing a shared "current adapter" field.
+        primary = self.adapters[0]
+        self.api_url = primary.api_url
+        self.api_key = primary.api_key
+        self.model = primary.model
+        self.stream = primary.stream
+        self.stream_idle = primary.stream_idle
+
+    @staticmethod
+    def _legacy_adapter() -> CustomLLMAdapter:
+        api_url = os.getenv("CUSTOM_LLM_URL", "").strip()
+        if not api_url:
+            raise ValueError("CUSTOM_LLM_URL not configured")
+        return CustomLLMAdapter(
+            name="legacy",
+            api_url=api_url,
+            api_key=os.getenv("CUSTOM_LLM_API_KEY", "").strip(),
+            model=os.getenv("CUSTOM_LLM_MODEL", "ag/gemini-3-flash-agent").strip(),
+            temperature=_float_env("CUSTOM_LLM_TEMPERATURE", "OPENAI_TEMPERATURE", 0.7),
+            stream=_bool_env("CUSTOM_LLM_STREAM", True),
+            stream_idle=_int_env(
+                "CUSTOM_LLM_STREAM_IDLE_SECONDS", "", DEFAULT_STREAM_IDLE_SECONDS
+            ),
+            thinking=os.getenv("CUSTOM_LLM_THINKING", "disabled").strip().lower(),
+            reasoning_effort=os.getenv(
+                "CUSTOM_LLM_REASONING_EFFORT", ""
+            ).strip().lower(),
         )
 
-        if not self.api_url:
-            raise ValueError("CUSTOM_LLM_URL not configured")
+    @staticmethod
+    def _named_adapter(name: str) -> CustomLLMAdapter | None:
+        prefix = f"CUSTOM_LLM_{name.upper()}_"
+        if not _bool_value(os.getenv(f"{prefix}ENABLED", ""), False):
+            return None
 
-    def _payload(self, prompt: str, system: str = "") -> dict:
+        api_url = os.getenv(f"{prefix}URL", "").strip()
+        model = os.getenv(f"{prefix}MODEL", "").strip()
+        if not api_url:
+            raise ValueError(f"{prefix}ENABLED is true but {prefix}URL is empty")
+        if not model:
+            raise ValueError(f"{prefix}ENABLED is true but {prefix}MODEL is empty")
+
+        key_var = f"{prefix}API_KEY"
+        api_key = os.getenv(key_var)
+        # The paid FPT key was originally stored under the legacy variable.
+        # Keep that deployment working while allowing new installs to use the
+        # adapter-specific name. Never apply this fallback to 9router: its load
+        # balancer injects replica keys itself, and forwarding the paid FPT key
+        # to a local proxy would be both wrong and an avoidable secret leak.
+        if api_key is None and name.lower() == "fpt":
+            api_key = os.getenv("CUSTOM_LLM_API_KEY", "")
+
+        common_temperature = os.getenv(
+            "CUSTOM_LLM_TEMPERATURE", os.getenv("OPENAI_TEMPERATURE", "0.7")
+        )
+        common_stream = os.getenv("CUSTOM_LLM_STREAM", "true")
+        common_idle = os.getenv(
+            "CUSTOM_LLM_STREAM_IDLE_SECONDS", str(DEFAULT_STREAM_IDLE_SECONDS)
+        )
+        return CustomLLMAdapter(
+            name=name.lower(),
+            api_url=api_url,
+            api_key=(api_key or "").strip(),
+            model=model,
+            temperature=_float_value(
+                os.getenv(f"{prefix}TEMPERATURE", common_temperature),
+                f"{prefix}TEMPERATURE",
+                0.7,
+            ),
+            stream=_bool_value(os.getenv(f"{prefix}STREAM", common_stream), True),
+            stream_idle=_int_value(
+                os.getenv(f"{prefix}STREAM_IDLE_SECONDS", common_idle),
+                f"{prefix}STREAM_IDLE_SECONDS",
+                DEFAULT_STREAM_IDLE_SECONDS,
+            ),
+            # Named adapters default to omitting non-standard fields. 9router
+            # opts into them in its own configuration; FPT leaves them blank.
+            thinking=os.getenv(f"{prefix}THINKING", "").strip().lower(),
+            reasoning_effort=os.getenv(
+                f"{prefix}REASONING_EFFORT", ""
+            ).strip().lower(),
+        )
+
+    @classmethod
+    def _load_adapters(cls) -> list[CustomLLMAdapter]:
+        configured = os.getenv("CUSTOM_LLM_ADAPTERS")
+        if configured is None:
+            return [cls._legacy_adapter()]
+
+        names = []
+        for value in configured.split(","):
+            name = value.strip().lower()
+            if name and name not in names:
+                names.append(name)
+
+        adapters = []
+        for name in names:
+            adapter = cls._named_adapter(name)
+            if adapter is not None:
+                adapters.append(adapter)
+            else:
+                logger.info("Custom LLM adapter disabled: %s", name)
+        if not adapters:
+            raise ValueError("CUSTOM_LLM_ADAPTERS selected no enabled adapter")
+        logger.info("Custom LLM adapters: %s", " -> ".join(a.name for a in adapters))
+        return adapters
+
+    def _max_tokens(self, stage: str) -> int:
+        default = _int_env(
+            "CUSTOM_LLM_MAX_TOKENS", "OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS
+        )
+        stage_env = STAGE_MAX_TOKEN_ENVS.get(stage)
+        return _int_env(stage_env, "", default) if stage_env else default
+
+    def _payload(
+        self,
+        prompt: str,
+        system: str = "",
+        stage: str = "",
+        adapter: CustomLLMAdapter | None = None,
+    ) -> dict:
+        adapter = adapter or self.adapters[0]
         payload = {
-            "model": self.model,
+            "model": adapter.model,
             "messages": build_messages(prompt, system),
-            "max_tokens": _int_env("CUSTOM_LLM_MAX_TOKENS", "OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS),
-            "temperature": _float_env("CUSTOM_LLM_TEMPERATURE", "OPENAI_TEMPERATURE", 0.7),
+            "max_tokens": self._max_tokens(stage),
+            "temperature": adapter.temperature,
         }
         # Measured on the 9router HA stack (scripts/probe-stream-thinking.py,
         # 2026-08-05): the `oc/*-free` backends answer COMPLETE stories faster
         # with thinking off (deepseek 10.3s vs 11.8s, nemotron 400 -> 200), and
         # the reasoning channel is never used by the Engine anyway. Proxies
         # that do not understand the param ignore it.
-        thinking = os.getenv("CUSTOM_LLM_THINKING", "disabled").strip().lower()
+        thinking = adapter.thinking
         if thinking in {"enabled", "disabled"}:
             payload["thinking"] = {"type": thinking}
 
@@ -286,36 +447,71 @@ class CustomClient(BaseLLMClient):
         # `reasoning_effort: none` completed in 7.7s. Keep this opt-in so a
         # stricter OpenAI-compatible proxy that rejects unknown fields is not
         # broken; the 9router HA deployment enables it explicitly.
-        reasoning_effort = os.getenv("CUSTOM_LLM_REASONING_EFFORT", "").strip().lower()
+        reasoning_effort = adapter.reasoning_effort
         if reasoning_effort:
             payload["reasoning_effort"] = reasoning_effort
         return payload
 
-    def _headers(self) -> dict:
+    def _headers(self, adapter: CustomLLMAdapter | None = None) -> dict:
+        adapter = adapter or self.adapters[0]
         headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        if adapter.api_key:
+            headers["Authorization"] = f"Bearer {adapter.api_key}"
         return headers
 
     async def complete(self, prompt: str, stage: str = "", system: str = "") -> str:
-        if self.stream:
-            content, detail = await self._complete_streaming(prompt, stage, system)
-        else:
-            content, detail = await self._complete_buffered(prompt, system)
+        last_error: Exception | None = None
+        for adapter in self.adapters:
+            try:
+                logger.info(
+                    "Custom LLM adapter call: adapter=%s stage=%s",
+                    adapter.name,
+                    stage or "?",
+                )
+                if adapter.stream:
+                    content, detail = await self._complete_streaming(
+                        prompt, stage, system, adapter
+                    )
+                else:
+                    content, detail = await self._complete_buffered(
+                        prompt, system, stage, adapter
+                    )
 
-        if not content.strip():
-            raise EmptyCompletionError(
-                f"{self.model} returned no content for stage={stage or '?'} ({detail})"
-            )
-        return content
+                if not content.strip():
+                    raise EmptyCompletionError(
+                        f"adapter={adapter.name} model={adapter.model} returned no "
+                        f"content for stage={stage or '?'} ({detail})"
+                    )
+                return content
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Custom LLM adapter failed: adapter=%s stage=%s error=%s",
+                    adapter.name,
+                    stage or "?",
+                    exc,
+                )
 
-    async def _complete_streaming(self, prompt: str, stage: str, system: str = "") -> tuple[str, str]:
-        payload = dict(self._payload(prompt, system), stream=True)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("No enabled custom LLM adapter")
+
+    async def _complete_streaming(
+        self,
+        prompt: str,
+        stage: str,
+        system: str,
+        adapter: CustomLLMAdapter,
+    ) -> tuple[str, str]:
+        payload = dict(self._payload(prompt, system, stage, adapter), stream=True)
         # `read` is per-chunk in streaming mode, so it is an inactivity timeout
         # rather than a deadline for the whole generation -- which is exactly
         # the distinction a buffered request cannot make.
         timeout = httpx.Timeout(
-            connect=15.0, read=float(self.stream_idle), write=30.0, pool=15.0
+            connect=15.0,
+            read=float(adapter.stream_idle),
+            write=30.0,
+            pool=15.0,
         )
 
         chunks: list[str] = []
@@ -329,7 +525,10 @@ class CustomClient(BaseLLMClient):
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
-                "POST", self.api_url, json=payload, headers=self._headers()
+                "POST",
+                adapter.api_url,
+                json=payload,
+                headers=self._headers(adapter),
             ) as response:
                 if response.status_code >= 400:
                     # The body has not been read yet in streaming mode, and
@@ -368,9 +567,9 @@ class CustomClient(BaseLLMClient):
 
         if content:
             logger.info(
-                "Stream stage=%s: %d frames, %d reasoning chars, first content at %s, "
+                "Stream adapter=%s stage=%s: %d frames, %d reasoning chars, first content at %s, "
                 "finish_reason=%s",
-                stage or "?", frames, reasoning_chars,
+                adapter.name, stage or "?", frames, reasoning_chars,
                 f"{first_content_at:.1f}s" if first_content_at is not None else "never",
                 finish_reason,
             )
@@ -392,10 +591,18 @@ class CustomClient(BaseLLMClient):
             detail += f", usage={usage}"
         return content, detail
 
-    async def _complete_buffered(self, prompt: str, system: str = "") -> tuple[str, str]:
+    async def _complete_buffered(
+        self,
+        prompt: str,
+        system: str,
+        stage: str,
+        adapter: CustomLLMAdapter,
+    ) -> tuple[str, str]:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
             response = await client.post(
-                self.api_url, json=self._payload(prompt, system), headers=self._headers()
+                adapter.api_url,
+                json=self._payload(prompt, system, stage, adapter),
+                headers=self._headers(adapter),
             )
             response.raise_for_status()
 

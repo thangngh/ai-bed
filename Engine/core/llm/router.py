@@ -46,6 +46,11 @@ class LLMRouter:
         primary = os.getenv("PRIMARY_LLM", "").strip()
         fallback = os.getenv("FALLBACK_LLM", "").strip()
         custom_url = os.getenv("CUSTOM_LLM_URL", "").strip()
+        custom_adapters = os.getenv("CUSTOM_LLM_ADAPTERS")
+        custom_configured = bool(
+            custom_url
+            or (custom_adapters is not None and custom_adapters.strip())
+        )
         openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
 
         order = []
@@ -72,7 +77,7 @@ class LLMRouter:
             except ValueError as e:
                 logger.warning(f"Gemini not available: {e}")
 
-        if custom_url:
+        if custom_configured:
             try:
                 self.providers["custom"] = CustomClient()
                 order.append("custom")
