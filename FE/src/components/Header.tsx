@@ -10,6 +10,7 @@ interface HeaderProps {
   setIsNightMode: (val: boolean | ((prev: boolean) => boolean)) => void;
   savedStoriesCount: number;
   onOpenSavedStories: () => void;
+  onOpenSupport: () => void;
   activeChild?: ChildProfile | null;
   onOpenChildSelector?: () => void;
   isOffline?: boolean;
@@ -22,6 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   setIsNightMode,
   savedStoriesCount,
   onOpenSavedStories,
+  onOpenSupport,
   activeChild,
   onOpenChildSelector,
   isOffline,
@@ -34,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
           : 'bg-amber-50/80 border-amber-200/60 text-amber-950'
       }`}
     >
-      <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div className="max-w-4xl mx-auto px-2 py-3 sm:px-4 flex items-center justify-between">
         {/* Brand Logo + Child Avatar */}
         <div className="flex items-center gap-2">
           {activeChild && onOpenChildSelector && (
@@ -60,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
             </div>
-            <div>
+            <div className="hidden md:block">
               <h1 className="font-bold text-base md:text-lg tracking-tight flex items-center gap-1.5">
                 <span>Bedtime Story</span>
                 <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-500/10 border border-indigo-400/20 text-indigo-400">
@@ -82,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Right Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2">
           {/* Saved Stories Button */}
           <button
             id="btn-header-saved-stories"
@@ -95,7 +97,7 @@ export const Header: React.FC<HeaderProps> = ({
             title="Tủ truyện đã lưu"
           >
             <BookOpen className="w-4 h-4 text-amber-500" />
-            <span className="hidden sm:inline">Tủ truyện</span>
+            <span className="hidden md:inline">Tủ truyện</span>
             {savedStoriesCount > 0 && (
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
                 {savedStoriesCount}
@@ -117,7 +119,7 @@ export const Header: React.FC<HeaderProps> = ({
             title="Hồ sơ các bé"
           >
             <Users className="w-4 h-4 text-emerald-500" />
-            <span className="hidden sm:inline">Bé</span>
+            <span className="hidden md:inline">Bé</span>
           </button>
 
           {/* Analytics Button */}
@@ -132,7 +134,23 @@ export const Header: React.FC<HeaderProps> = ({
             title="Phân tích"
           >
             <BarChart3 className="w-4 h-4 text-indigo-500" />
-            <span className="hidden sm:inline">Phân tích</span>
+            <span className="hidden md:inline">Phân tích</span>
+          </button>
+
+          {/* Support Button */}
+          <button
+            id="btn-header-support"
+            onClick={onOpenSupport}
+            className={`p-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all ${
+              isNightMode
+                ? 'bg-rose-500/10 hover:bg-rose-500/20 border border-rose-400/25 text-rose-100'
+                : 'bg-rose-50/90 hover:bg-rose-100 border border-rose-200 text-rose-800'
+            }`}
+            title="Ủng hộ dự án"
+            aria-label="Ủng hộ dự án"
+          >
+            <Heart className="w-4 h-4 fill-rose-400/30 text-rose-500" />
+            <span className="hidden md:inline">Ủng hộ</span>
           </button>
 
           {/* Night Mode Toggle */}

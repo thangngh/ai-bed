@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { ArrowLeft, Sparkles, Save } from 'lucide-react';
 import { AgeGroup, GenderOption, ChildProfile } from '../types';
 import { childClient } from '../utils/childClient';
-import { ApiError } from '../utils/api';
 
 interface ProfileEditorProps {
   editChild?: ChildProfile | null;
@@ -52,14 +51,10 @@ export const ProfileEditor: React.FC<ProfileEditorProps> = ({
       } else {
         onSave(await childClient.create(payload));
       }
-    } catch (err) {
-      // A silent failure here reads as a dead button. 409 is the only case a
-      // parent can act on, so it gets its own words.
-      setError(
-        err instanceof ApiError && err.status === 409
-          ? 'Đã có bé tên này rồi. Ba mẹ chọn tên khác nhé!'
-          : 'Lưu hồ sơ thất bại. Ba mẹ thử lại nhé!'
-      );
+    } catch {
+      // Duplicate names are valid; any rejection here is an actual transport
+      // or validation failure rather than a naming conflict.
+      setError('Lưu hồ sơ thất bại. Ba mẹ thử lại nhé!');
     } finally {
       setSaving(false);
     }

@@ -90,19 +90,26 @@ describe('Child Profile Module (integration)', () => {
     expect(saved?.gender).toBe('boy');
   });
 
-  it('POST /child-profile duplicate name returns 409', async () => {
+  it('POST /child-profile allows duplicate names as separate profiles', async () => {
     const tenant = freshTenant();
-    await request(app.getHttpServer())
+    const first = await request(app.getHttpServer())
       .post('/child-profile')
       .set('X-Tenant-Id', tenant)
       .send({ child_name: 'Chi', age: 4 })
       .expect(201);
 
-    await request(app.getHttpServer())
+    const second = await request(app.getHttpServer())
       .post('/child-profile')
       .set('X-Tenant-Id', tenant)
       .send({ child_name: 'Chi', age: 5 })
-      .expect(409);
+      .expect(201);
+
+    expect(second.body.child_id).not.toBe(first.body.child_id);
+    const list = await request(app.getHttpServer())
+      .get('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .expect(200);
+    expect(list.body.children.filter((child: any) => child.child_name === 'Chi')).toHaveLength(2);
   });
 
   it('GET /child-profile lists all children for the tenant', async () => {
@@ -154,7 +161,7 @@ describe('Child Profile Module (integration)', () => {
     expect(res.body.child_id).toBeNull();
   });
 
-  it('PUT /child-profile/:childId updates child fields', async () => {
+  it('POST /child-profile/:childId/update updates child fields', async () => {
     const tenant = freshTenant();
     const created = await request(app.getHttpServer())
       .post('/child-profile')
@@ -163,7 +170,7 @@ describe('Child Profile Module (integration)', () => {
       .expect(201);
 
     const res = await request(app.getHttpServer())
-      .put(`/child-profile/${created.body.child_id}`)
+      .post(`/child-profile/${created.body.child_id}/update`)
       .set('X-Tenant-Id', tenant)
       .send({ age: 5, gender: 'girl', bedtime_goal: 'Ngủ đúng giờ' })
       .expect(200);
@@ -176,7 +183,7 @@ describe('Child Profile Module (integration)', () => {
     expect(saved?.bedtimeGoal).toBe('Ngủ đúng giờ');
   });
 
-  it('DELETE /child-profile/:childId soft-deletes (204, excluded from GET)', async () => {
+  it('POST /child-profile/:childId/delete soft-deletes (204, excluded from GET)', async () => {
     const tenant = freshTenant();
     const created = await request(app.getHttpServer())
       .post('/child-profile')
@@ -185,7 +192,7 @@ describe('Child Profile Module (integration)', () => {
       .expect(201);
 
     await request(app.getHttpServer())
-      .delete(`/child-profile/${created.body.child_id}`)
+      .post(`/child-profile/${created.body.child_id}/delete`)
       .set('X-Tenant-Id', tenant)
       .expect(204);
 
@@ -203,9 +210,9 @@ describe('Child Profile Module (integration)', () => {
     expect(byName.body.child_id).toBeNull();
   });
 
-  it('DELETE /child-profile/:childId returns 404 for unknown child', async () => {
+  it('POST /child-profile/:childId/delete returns 404 for unknown child', async () => {
     await request(app.getHttpServer())
-      .delete('/child-profile/nonexistent-id')
+      .post('/child-profile/nonexistent-id/delete')
       .set('X-Tenant-Id', freshTenant())
       .expect(404);
   });
@@ -367,7 +374,7 @@ describe('Child Profile Module (integration)', () => {
     expect(res.body.child_name).toBe('Moi');
   });
 
-  it('PUT /child-profile/:childId returns 409 when the new name is taken', async () => {
+  it('PUT /child-profile/:childId allows renaming to another child name', async () => {
     const tenant = freshTenant();
     await request(app.getHttpServer())
       .post('/child-profile')
@@ -380,10 +387,17 @@ describe('Child Profile Module (integration)', () => {
       .send({ child_name: 'SeDoi', age: 4 })
       .expect(201);
 
-    await request(app.getHttpServer())
+    const renamed = await request(app.getHttpServer())
       .put(`/child-profile/${mover.body.child_id}`)
       .set('X-Tenant-Id', tenant)
       .send({ child_name: 'DaCo' })
-      .expect(409);
+      .expect(200);
+
+    expect(renamed.body.child_name).toBe('DaCo');
+    const list = await request(app.getHttpServer())
+      .get('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .expect(200);
+    expect(list.body.children.filter((child: any) => child.child_name === 'DaCo')).toHaveLength(2);
   });
 });

@@ -88,4 +88,23 @@ describe('StoryService', () => {
     const result = await service.findById('nonexistent', 't1');
     expect(result).toBeNull();
   });
+
+  it('filters latest stories by child_id when names are duplicated', async () => {
+    const saveStory = async (storyId: string, childId: string) => {
+      const story = new Story();
+      story.storyId = storyId;
+      story.tenantId = 'same-tenant';
+      story.childId = childId;
+      story.title = `Story ${storyId}`;
+      story.content = '{}';
+      story.theme = 'Động vật';
+      await storyRepo.save(story);
+    };
+    await saveStory('same-name-a', 'child-a');
+    await saveStory('same-name-b', 'child-b');
+
+    const result = await service.getLatest('same-tenant', undefined, 10, 'child-b');
+
+    expect(result.map((story) => story.storyId)).toEqual(['same-name-b']);
+  });
 });

@@ -85,9 +85,20 @@ describe('childClient', () => {
     const updated = await childClient.update('c3', { child_name: 'Moi', age: 4 });
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('/api/child-profile/c3');
-    expect(init.method).toBe('PUT');
+    expect(url).toBe('/api/child-profile/c3/update');
+    expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ child_name: 'Moi', age: 4 });
     expect(updated.childName).toBe('Moi');
+  });
+
+  it('uses the POST compatibility endpoint to delete a profile', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await childClient.delete('c4');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/child-profile/c4/delete');
+    expect(init.method).toBe('POST');
   });
 });

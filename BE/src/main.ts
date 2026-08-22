@@ -40,7 +40,7 @@ async function bootstrap() {
       // The tenant and the admin session both travel in headers, so the
       // methods and headers are enumerated rather than reflected.
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id', 'X-Story-Heartbeat'],
       maxAge: 600,
     });
     console.log(`CORS enabled for: ${origins.join(', ')}`);

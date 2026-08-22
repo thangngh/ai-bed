@@ -91,6 +91,18 @@ describe('Story Module (integration)', () => {
     expect(res.body.safety_status).toBe('APPROVED');
   });
 
+  it('streams JSON-safe heartbeats when the SPA requests them', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/story/create')
+      .set('X-Tenant-Id', TENANT_D)
+      .set('X-Story-Heartbeat', '1')
+      .send({ child_name: 'An', age: 4, theme: 'Động vật' })
+      .expect(201);
+    expect(res.headers['cache-control']).toBe('no-cache, no-transform');
+    expect(res.body.story_id).toBeDefined();
+    expect(res.body.title).toBe('Chú thỏ dũng cảm');
+  });
+
   it('POST /story/create with invalid tenant returns 400 INVALID_TENANT', async () => {
     const res = await request(app.getHttpServer())
       .post('/story/create')
@@ -231,6 +243,47 @@ describe('Story Module (integration)', () => {
     expect(list.body.children).toHaveLength(1);
     expect(list.body.children[0].child_id).toBe(created.body.child_id);
   });
+
+  it('keeps stories separate for two profiles with the same name', async () => {
+    const tenant = 'f2345678-1234-4123-8123-123456789abc';
+    const createProfile = (age: number) => request(app.getHttpServer())
+      .post('/child-profile')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'An', age })
+      .expect(201);
+    const first = await createProfile(4);
+    const second = await createProfile(5);
+
+    // A legacy name-only request must not silently select either duplicate.
+    await request(app.getHttpServer())
+      .post('/story/create')
+      .set('X-Tenant-Id', tenant)
+      .send({ child_name: 'An', age: 4, theme: 'Động vật' })
+      .expect(400);
+
+    for (const child of [first.body, second.body]) {
+      await request(app.getHttpServer())
+        .post('/story/create')
+        .set('X-Tenant-Id', tenant)
+        .send({
+          child_id: child.child_id,
+          child_name: child.child_name,
+          age: child.age,
+          theme: 'Động vật',
+        })
+        .expect(201);
+    }
+
+    const latest = await request(app.getHttpServer())
+      .get('/story/latest')
+      .set('X-Tenant-Id', tenant)
+      .query({ child_id: second.body.child_id, limit: 10 })
+      .expect(200);
+
+    expect(latest.body.stories).toHaveLength(1);
+    expect(latest.body.stories[0].child_id).toBe(second.body.child_id);
+    expect(latest.body.stories[0].child_id).not.toBe(first.body.child_id);
+  }, 30000);
 
   it('POST /story/create with a child_id from another tenant returns 404', async () => {
     const owner = 'b2345678-1234-4123-8123-123456789abc';

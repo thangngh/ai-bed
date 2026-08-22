@@ -1,5 +1,5 @@
 import { BedtimeStory, StoryFormInput, StorySegments } from '../types';
-import { apiClient, STORY_TIMEOUT_MS } from './api';
+import { apiClient, ApiError, STORY_TIMEOUT_MS } from './api';
 
 type InteractionSlot = 'interaction1' | 'interaction2' | 'interaction3';
 
@@ -119,6 +119,10 @@ export async function generateBedtimeStory(input: StoryFormInput): Promise<Bedti
   const data = await apiClient<any>('/story/create', {
     method: 'POST',
     timeoutMs: STORY_TIMEOUT_MS,
+    // The BE emits JSON whitespace every 10s while the LLM works. This keeps
+    // long generations alive through proxies with a 60s idle-response limit;
+    // response.json() still parses the final object normally.
+    headers: { 'X-Story-Heartbeat': '1' },
     body: JSON.stringify({
       child_id: input.childId,
       child_name: input.childName,
@@ -132,6 +136,15 @@ export async function generateBedtimeStory(input: StoryFormInput): Promise<Bedti
     }),
   });
 
+  // A streamed response has already sent its HTTP 201 headers before the LLM
+  // can fail, so late failures are represented in the final JSON body.
+  if (data?.error) {
+    throw new ApiError(
+      data.error.code || 'STORY_GENERATION_FAILED',
+      data.error.message || 'Không thể tạo truyện',
+    );
+  }
+
   const storyData = data.data || data;
   const segments = mapSectionsToSegments(storyData.sections || []);
 
@@ -139,6 +152,7 @@ export async function generateBedtimeStory(input: StoryFormInput): Promise<Bedti
     // The `be-` prefix marks a story the BE owns, so saving it and rating it
     // reach the right row instead of a client-only id.
     id: storyData.story_id ? `be-${storyData.story_id}` : `story-${Date.now()}`,
+    childId: input.childId,
     title: storyData.title || 'Câu chuyện của bé',
     childName: input.childName,
     childAge: input.childAge,

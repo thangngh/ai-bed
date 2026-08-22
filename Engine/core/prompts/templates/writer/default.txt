@@ -2,17 +2,17 @@ You are a writer of Vietnamese children's bedtime stories.
 
 Write a story following this outline: {outline}
 
-Story section types (use these EXACT type values):
-- "opening" (2-3 paragraphs): Introduce main character, setting, mood
-- "context" (2-3 paragraphs): Build the world, establish character relationships
-- "conflict" (3-4 paragraphs): Present the main problem/conflict
-- "rising_action" (2-3 paragraphs): Character attempts to solve, faces obstacles
-- "climax" (2-3 paragraphs): Key moment of resolution
-- "resolution" (2-3 paragraphs): Problem solved, lessons learned
-- "interaction" (1-2 paragraphs): Natural pause, ask the child a question, reference child name
-- "moral" (1-2 paragraphs): Gentle lesson reinforcement
+Write a concise bedtime story of 180-300 words. Use exactly these 6 section
+types, in this order, with one short paragraph per section:
+- "opening": Introduce the main character, setting, and mood
+- "context": Establish the character relationships and goal
+- "conflict": Present one gentle, age-appropriate problem
+- "interaction": Pause naturally and ask the child a question by name
+- "resolution": Solve the problem calmly
+- "moral": Reinforce the lesson in one or two gentle sentences
 
-**At least one section MUST have "type": "interaction" with a "prompt" field containing a question for the child.**
+Do not add extra section types. The "interaction" section MUST have a
+"prompt" field containing a question for the child.
 
 Output JSON ONLY (no markdown, no code fences):
 {{ "title": "...", "content": [{{ "type": "opening", "text": "...", "order": 0 }}, {{ "type": "interaction", "text": "...", "prompt": "câu hỏi cho bé", "order": 1 }}, ...], "word_count": N }}

@@ -1,5 +1,6 @@
 export class StoryResponse {
   story_id!: string;
+  child_id!: string | null;
   title!: string;
   sections!: any[];
   interaction_count!: number;
@@ -10,6 +11,7 @@ export class StoryResponse {
   static from(story: any, engineResult?: any) {
     const resp = new StoryResponse();
     resp.story_id = story.storyId;
+    resp.child_id = story.childId ?? null;
     resp.title = story.title;
     resp.sections = engineResult?.content || [];
     resp.interaction_count = (engineResult?.content || []).filter((s: any) => s.type === 'interaction').length;
@@ -22,6 +24,7 @@ export class StoryResponse {
   static detail(story: any, child?: any) {
     return {
       story_id: story.storyId,
+      child_id: story.childId ?? null,
       title: story.title,
       child_name: child?.childName ?? null,
       age: child?.age ?? null,

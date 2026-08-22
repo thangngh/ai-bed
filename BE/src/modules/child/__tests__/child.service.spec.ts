@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -139,11 +139,23 @@ describe('ChildService', () => {
     expect(p.isActive).toBe(1);
   });
 
-  it('create() rejects a name already used by an active child', async () => {
-    await service.create('tenant-3', { child_name: 'Dup', age: 4 } as any);
+  it('create() allows active children to share a display name', async () => {
+    const first = await service.create('tenant-3', { child_name: 'Dup', age: 4 } as any);
+    const second = await service.create('tenant-3', { child_name: 'Dup', age: 5 } as any);
 
-    await expect(service.create('tenant-3', { child_name: 'Dup', age: 5 } as any))
-      .rejects.toThrow(ConflictException);
+    expect(second.childId).not.toBe(first.childId);
+    expect((await service.findByTenant('tenant-3')).filter((p) => p.childName === 'Dup')).toHaveLength(2);
+  });
+
+  it('name-only getOrCreate refuses to guess between duplicates', async () => {
+    await service.create('tenant-ambiguous', { child_name: 'An', age: 4 } as any);
+    await service.create('tenant-ambiguous', { child_name: 'An', age: 5 } as any);
+
+    await expect(service.getOrCreate(
+      'tenant-ambiguous',
+      { child_name: 'An', age: 4 } as any,
+    )).rejects.toThrow(BadRequestException);
+    expect(await service.findByName('tenant-ambiguous', 'An')).toBeNull();
   });
 
   it('create() allows a name freed by a soft delete', async () => {
@@ -172,12 +184,14 @@ describe('ChildService', () => {
     expect(await service.findByName('tenant-5', 'Sai')).toBeNull();
   });
 
-  it('update() rejects a rename onto another active child', async () => {
+  it('update() allows a rename onto another active child display name', async () => {
     await service.create('tenant-5', { child_name: 'Taken', age: 4 } as any);
     const other = await service.create('tenant-5', { child_name: 'Mover', age: 4 } as any);
 
-    await expect(service.update(other.childId, 'tenant-5', { child_name: 'Taken' } as any))
-      .rejects.toThrow(ConflictException);
+    const renamed = await service.update(other.childId, 'tenant-5', { child_name: 'Taken' } as any);
+
+    expect(renamed.childName).toBe('Taken');
+    expect((await service.findByTenant('tenant-5')).filter((p) => p.childName === 'Taken')).toHaveLength(2);
   });
 
   it('update() accepts a no-op rename to the child own name', async () => {

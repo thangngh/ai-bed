@@ -92,10 +92,10 @@ describe('AdminFeedbackService.list', () => {
     expect(withoutNote.items.map((i) => i.feedback_id).sort()).toEqual(['f2', 'f3']);
   });
 
-  it('filters by date range inclusive of both ends', async () => {
+  it('filters by Vietnam calendar dates rather than UTC dates', async () => {
     const page = await service.list({ from: '2026-08-02', to: '2026-08-03' });
-    // f4 sits at 23:59:59 on the `to` day and must be inside the range.
-    expect(page.items.map((i) => i.feedback_id).sort()).toEqual(['f2', 'f3', 'f4']);
+    // f4 is Aug 4 at 06:59:59 in Vietnam, so it is outside the selected range.
+    expect(page.items.map((i) => i.feedback_id).sort()).toEqual(['f2', 'f3']);
   });
 
   it('combines filters', async () => {

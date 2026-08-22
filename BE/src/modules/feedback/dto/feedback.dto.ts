@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Min, Max, MinLength, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsUUID, Min, Max, MaxLength } from 'class-validator';
 import { IsChildSafeText } from '../../../common/validation/child-text';
 
 const ID_MAX = 64;
@@ -8,6 +8,10 @@ export class CreateFeedbackDto {
   @IsString()
   @MaxLength(ID_MAX)
   story_id!: string;
+
+  @IsOptional()
+  @IsUUID()
+  child_id?: string;
 
   @IsOptional()
   @IsString()

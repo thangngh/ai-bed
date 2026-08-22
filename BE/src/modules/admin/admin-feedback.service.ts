@@ -5,6 +5,7 @@ import { Feedback } from '../feedback/entities/feedback.entity';
 import { ChildProfile } from '../child/entities/child-profile.entity';
 import { Story } from '../story/entities/story.entity';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
+import { vietnamDateBoundaryUtc } from '../../common/time/vietnam-time';
 import { ListFeedbackDto } from './dto/list-feedback.dto';
 
 export interface AdminFeedbackItem {
@@ -82,17 +83,20 @@ export class AdminFeedbackService {
       where.note = Raw((alias) => `${alias} IS NULL OR ${alias} = ''`);
     }
 
-    // created_at is SQLite's `datetime('now')` -- 'YYYY-MM-DD HH:MM:SS' in UTC,
-    // which compares correctly as a string.
+    // The UI date inputs are Vietnam calendar dates; SQLite stores UTC. Shift
+    // both boundaries to UTC before using their sortable timestamp strings.
     if (query.from && query.to) {
       where.createdAt = Raw(
         (alias) => `${alias} >= :from AND ${alias} <= :to`,
-        { from: `${query.from} 00:00:00`, to: `${query.to} 23:59:59` },
+        {
+          from: vietnamDateBoundaryUtc(query.from),
+          to: vietnamDateBoundaryUtc(query.to, true),
+        },
       );
     } else if (query.from) {
-      where.createdAt = MoreThanOrEqual(`${query.from} 00:00:00`);
+      where.createdAt = MoreThanOrEqual(vietnamDateBoundaryUtc(query.from));
     } else if (query.to) {
-      where.createdAt = LessThanOrEqual(`${query.to} 23:59:59`);
+      where.createdAt = LessThanOrEqual(vietnamDateBoundaryUtc(query.to, true));
     }
 
     return where;

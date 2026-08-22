@@ -59,14 +59,14 @@ export const childClient = {
   },
 
   update: async (childId: string, input: ChildProfileUpdateInput): Promise<ChildProfile> => {
-    const data = await apiClient<ChildApiResponse>(`/child-profile/${childId}`, {
-      method: 'PUT',
+    const data = await apiClient<ChildApiResponse>(`/child-profile/${childId}/update`, {
+      method: 'POST',
       body: JSON.stringify(input),
     });
     return toProfile(data);
   },
 
   delete: async (childId: string): Promise<void> => {
-    await apiClient(`/child-profile/${childId}`, { method: 'DELETE' });
+    await apiClient(`/child-profile/${childId}/delete`, { method: 'POST' });
   },
 };

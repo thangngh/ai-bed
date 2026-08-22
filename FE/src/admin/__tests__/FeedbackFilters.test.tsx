@@ -33,9 +33,9 @@ describe('FeedbackFilters', () => {
     expect(onChange.mock.calls.at(-1)![0].from).toBe('2026-08-01');
   });
 
-  it('labels the date range as UTC so the 7-hour offset is not a surprise', () => {
+  it('labels the date range as Vietnam time', () => {
     render(<FeedbackFilters value={empty} onChange={vi.fn()} />);
-    expect(screen.getByText(/UTC/)).toBeInTheDocument();
+    expect(screen.getByText(/giờ Việt Nam \(UTC\+7\)/i)).toBeInTheDocument();
   });
 
   it('resets every field at once', async () => {

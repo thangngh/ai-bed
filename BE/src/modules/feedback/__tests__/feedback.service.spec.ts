@@ -33,6 +33,7 @@ describe('FeedbackService', () => {
           provide: ChildService,
           useValue: {
             findByName: jest.fn(),
+            findById: jest.fn(),
           },
         },
         {
@@ -88,6 +89,30 @@ describe('FeedbackService', () => {
       'tenant-1',
       expect.objectContaining({ action: 'boost' }),
     );
+  });
+
+  it('uses child_id instead of an ambiguous display name', async () => {
+    childService.findById.mockResolvedValue({
+      childId: '12345678-1234-4123-8123-123456789abc',
+      tenantId: 'tenant-1',
+      childName: 'An',
+      age: 4,
+      language: 'vi',
+      isActive: 1,
+    } as any);
+
+    const result = await service.submit({
+      story_id: 'story-by-id',
+      child_id: '12345678-1234-4123-8123-123456789abc',
+      child_name: 'An',
+      rating: 5,
+    }, 'tenant-1');
+
+    const saved = await dataSource.getRepository(Feedback).findOneBy({
+      feedbackId: result.feedback_id,
+    });
+    expect(saved?.childId).toBe('12345678-1234-4123-8123-123456789abc');
+    expect(childService.findByName).not.toHaveBeenCalled();
   });
 
   it('should reduce memory on rating <= 2', async () => {

@@ -12,14 +12,11 @@ logger = logging.getLogger(__name__)
 # (empty content -> truncated JSON -> fallback). 4096 fits reasoning + ~150
 # Vietnamese words.
 #
-# It does NOT fit the writer stage. Measured on `oc/deepseek-v4-flash-free`
-# with a nine-section prompt: at 4096 the reply came back
-# `finish_reason: "length"` with `reasoning_tokens: 4096` and `content: ""` --
-# the whole budget spent deliberating, nothing emitted. The same prompt at
-# 16000 finished with `stop`, 2498 reasoning tokens, and a complete JSON story.
-# So a deployment using reasoning models must raise CUSTOM_LLM_MAX_TOKENS; the
-# 9router overlay sets 16000. The default stays low because it is also the
-# budget for pay-per-token providers.
+# The retired deepseek-v4 free backend once exhausted both 4096 and 8192 even
+# with `reasoning_effort: none`. The current HA profile pins nemotron with
+# thinking disabled; measured planner/writer replies use about 600 output
+# tokens each, so the conservative 4096 ceiling has ample room without leaving
+# an unnecessarily large allowance.
 DEFAULT_MAX_TOKENS = 4096
 
 # Reasoning models can take several minutes per call (the writer stage emits a
@@ -247,12 +244,10 @@ class CustomClient(BaseLLMClient):
         # 40.7s on identical prompts, the slowest ignoring the Vietnamese-only
         # instruction), so one name gives unpredictable latency and quality.
         #
-        # The `oc/` free models are reasoning models: they spend the token
-        # budget on `reasoning_content` first, so an undersized
-        # CUSTOM_LLM_MAX_TOKENS returns `content: ""` with
-        # `finish_reason: "length"`. They do write stories once the budget fits
-        # the reasoning -- see DEFAULT_MAX_TOKENS above -- but they are slower
-        # and less predictable than a connected `ag/` account.
+        # Some `oc/` free models spend the token budget on reasoning before
+        # content. Pin a model known to work and disable reasoning in the
+        # deployment profile; otherwise an undersized budget can return empty
+        # content with finish_reason="length".
         self.model = os.getenv("CUSTOM_LLM_MODEL", "ag/gemini-3-flash-agent")
 
         # Ask for a stream by default. It costs nothing when the proxy does not
@@ -283,6 +278,17 @@ class CustomClient(BaseLLMClient):
         thinking = os.getenv("CUSTOM_LLM_THINKING", "disabled").strip().lower()
         if thinking in {"enabled", "disabled"}:
             payload["thinking"] = {"type": thinking}
+
+        # OpenAI-style reasoning models do not necessarily understand the
+        # Anthropic-style `thinking` object above. 9router's OpenCode path is
+        # one of them: `thinking: disabled` was ignored and a planner spent
+        # 135s/33k characters reasoning, while the same request with
+        # `reasoning_effort: none` completed in 7.7s. Keep this opt-in so a
+        # stricter OpenAI-compatible proxy that rejects unknown fields is not
+        # broken; the 9router HA deployment enables it explicitly.
+        reasoning_effort = os.getenv("CUSTOM_LLM_REASONING_EFFORT", "").strip().lower()
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         return payload
 
     def _headers(self) -> dict:

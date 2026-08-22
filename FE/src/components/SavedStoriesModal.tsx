@@ -30,18 +30,22 @@ export const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({
   const [filterTab, setFilterTab] = useState<'all' | 'child'>(activeChild ? 'child' : 'all');
   const showAllStories = filterTab === 'all';
 
-  // Merge BE + localStorage stories, dedup by title
+  // Merge BE + localStorage stories. The same BE story may exist in both
+  // collections, but two different children may legitimately receive the
+  // same title, so identity -- never title or child name -- is the dedup key.
   const allMerged = [...beStories, ...savedStories];
   const seen = new Set<string>();
   const deduped = allMerged.filter(s => {
-    const key = s.title;
+    const key = s.id;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
   const displayedStories = showAllStories || !activeChild
     ? deduped
-    : deduped.filter(s => s.childName === activeChild.childName);
+    : deduped.filter(s => s.childId
+      ? s.childId === activeChild.childId
+      : s.childName === activeChild.childName);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">

@@ -64,9 +64,7 @@ export default function FeedbackFilters({ value, onChange }: Props) {
         />
       </div>
 
-      {/* created_at is stored in UTC; without this label a Vietnamese user
-          would read the range as local time and be off by seven hours. */}
-      <p className="text-xs text-slate-500">Khoảng ngày tính theo UTC</p>
+      <p className="text-xs text-slate-500">Khoảng ngày theo giờ Việt Nam (UTC+7)</p>
 
       <button
         type="button"
