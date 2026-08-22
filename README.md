@@ -2,6 +2,34 @@
 
 Tạo câu chuyện trước giờ ngủ cho bé 3-6 tuổi bằng AI, hoàn toàn bằng tiếng Việt.
 
+## 💛 Ủng hộ dự án & minh bạch
+
+AI Bedtime là dự án hướng tới trải nghiệm kể chuyện an toàn, dễ tiếp cận và
+bền vững cho các gia đình Việt. Bạn có thể đồng hành mà không nhất thiết phải
+đóng góp tài chính:
+
+| Hình thức | Bạn có thể làm gì | Giá trị mang lại |
+|---|---|---|
+| ⭐ Lan toả | Star repository, chia sẻ dự án và góp ý trải nghiệm | Giúp dự án tiếp cận thêm gia đình |
+| 🐛 Chất lượng | Báo lỗi kèm bước tái hiện hoặc gửi pull request | Làm sản phẩm ổn định và an toàn hơn |
+| 📚 Nội dung | Góp ý về ngôn ngữ, độ tuổi và tính phù hợp của truyện | Nâng chất lượng nội dung cho trẻ em |
+| 🖥️ Hạ tầng | Tài trợ API LLM, máy chủ hoặc chi phí vận hành | Duy trì dịch vụ và giảm thời gian chờ |
+
+### Nguyên tắc minh bạch
+
+- Mọi khoản hỗ trợ chỉ được tiếp nhận qua kênh chính thức được công bố trong
+  repository này; dự án **không yêu cầu API key, mật khẩu hoặc token cá nhân**.
+- Khoản hỗ trợ tài chính, nếu được mở, sẽ có mục đích sử dụng rõ ràng và báo cáo
+  định kỳ theo các nhóm: hạ tầng, API AI, tên miền/bảo mật và phát triển sản phẩm.
+- Tài trợ hiện vật hoặc dịch vụ được ghi nhận cùng phạm vi, thời hạn và điều kiện
+  sử dụng; không đổi lấy quyền truy cập dữ liệu người dùng.
+- Nhà tài trợ không được can thiệp vào tiêu chuẩn an toàn nội dung, quyền riêng tư
+  hoặc ưu tiên thương mại trái với lợi ích của trẻ em và gia đình.
+
+> **Trạng thái hiện tại:** dự án chưa công bố kênh nhận ủng hộ tài chính. Hãy cảnh
+> giác với mọi lời mời chuyển tiền không xuất hiện trong README hoặc thông báo
+> chính thức của repository này.
+
 ## Architecture
 
 ```
