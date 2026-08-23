@@ -13,12 +13,10 @@ services:
     env_file:
       - ./Engine/.env
     environment:
-      # Engine/.env points CUSTOM_LLM_URL at a 9router on the *host*
-      # (localhost:20128), which inside this container is the container
-      # itself. Left set, every LLM call would burn a failed attempt on a
-      # refused connection before reaching a provider that works. The
-      # 9router HA overlay sets it back to the balancer's service name.
-      CUSTOM_LLM_URL: ""
+      # Provider credentials and endpoint come from Engine/.env. This keeps a
+      # paid OpenAI-compatible API usable in the base stack without publishing
+      # the Engine. The optional 9router HA overlay may still override the URL
+      # with its internal balancer service when explicitly enabled.
       # Whole-generation deadline. Must stay below the BE's ENGINE_TIMEOUT_MS
       # so a slow run degrades to a fallback story instead of a 502.
       PIPELINE_BUDGET_SECONDS: ${PIPELINE_BUDGET_SECONDS:-45}

@@ -1,7 +1,7 @@
 import os
 import logging
 import time
-from .client import BaseLLMClient
+from .client import BaseLLMClient, OutputTokenLimitError
 from .openai_client import OpenAIClient, AllKeysExhausted
 from .gemini_client import GeminiClient
 from .custom_client import CustomClient
@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 class FallbackTriggered(Exception):
     """All providers in the fallback chain failed."""
-    pass
+
+    def __init__(self, message: str, *, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class UnusableResponse(Exception):
@@ -46,6 +49,11 @@ class LLMRouter:
         primary = os.getenv("PRIMARY_LLM", "").strip()
         fallback = os.getenv("FALLBACK_LLM", "").strip()
         custom_url = os.getenv("CUSTOM_LLM_URL", "").strip()
+        custom_adapters = os.getenv("CUSTOM_LLM_ADAPTERS")
+        custom_configured = bool(
+            custom_url
+            or (custom_adapters is not None and custom_adapters.strip())
+        )
         openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
 
         order = []
@@ -72,7 +80,7 @@ class LLMRouter:
             except ValueError as e:
                 logger.warning(f"Gemini not available: {e}")
 
-        if custom_url:
+        if custom_configured:
             try:
                 self.providers["custom"] = CustomClient()
                 order.append("custom")
@@ -199,6 +207,7 @@ class LLMRouter:
         untrusted data is exactly what the provider's system channel encodes.
         """
         last_error = None
+        failures: list[Exception] = []
         # A snapshot, for two reasons: a provider may be dropped mid-loop, and
         # under rotation this call's order is not self.fallback_order.
         for provider_name in self._next_chain():
@@ -232,15 +241,18 @@ class LLMRouter:
                 # and retiring it for the life of the process on that evidence
                 # would shrink the chain for a bad afternoon of sampling.
                 last_error = str(e)
+                failures.append(e)
                 logger.warning(f"{e}, trying fallback")
                 continue
             except AllKeysExhausted as e:
                 last_error = str(e)
+                failures.append(e)
                 # Definitive: no key will start working on its own.
                 self._drop(provider_name, "all keys exhausted")
                 continue
             except Exception as e:
                 last_error = str(e)
+                failures.append(e)
                 count = self._consecutive_failures.get(provider_name, 0) + 1
                 self._consecutive_failures[provider_name] = count
                 logger.warning(
@@ -249,5 +261,9 @@ class LLMRouter:
                 if count >= MAX_CONSECUTIVE_FAILURES:
                     self._drop(provider_name, f"{count} consecutive failures")
                 continue
-
-        raise FallbackTriggered(f"All providers failed: {last_error}")
+        retryable = not failures or not all(
+            isinstance(error, OutputTokenLimitError) for error in failures
+        )
+        raise FallbackTriggered(
+            f"All providers failed: {last_error}", retryable=retryable
+        )

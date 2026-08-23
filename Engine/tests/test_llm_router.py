@@ -1,6 +1,6 @@
 import pytest
 from core.llm.router import LLMRouter, FallbackTriggered
-from core.llm.client import BaseLLMClient
+from core.llm.client import BaseLLMClient, OutputTokenLimitError
 
 
 class MockClient(BaseLLMClient):
@@ -59,6 +59,22 @@ class TestLLMRouter:
         import asyncio
         with pytest.raises(FallbackTriggered):
             asyncio.run(router.complete("test"))
+
+    def test_output_token_limit_is_marked_non_retryable(self):
+        class TokenLimitedClient(BaseLLMClient):
+            async def complete(self, prompt, stage="", system=""):
+                raise OutputTokenLimitError("reasoning used the output budget")
+
+        router = LLMRouter()
+        router.providers = {"limited": TokenLimitedClient()}
+        router.fallback_order = ["limited"]
+        router._consecutive_failures = {}
+
+        import asyncio
+        with pytest.raises(FallbackTriggered) as excinfo:
+            asyncio.run(router.complete("test"))
+
+        assert excinfo.value.retryable is False
 
     def test_skips_openai_without_keys(self, monkeypatch):
         # Registering OpenAI with no keys puts a guaranteed failure at the head

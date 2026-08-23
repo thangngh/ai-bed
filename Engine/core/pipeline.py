@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from .validator import OutputValidator, ValidationResult
 from .cleanup import extract_json_block
-from .llm.router import LLMRouter
+from .llm.router import FallbackTriggered, LLMRouter
 from .prompts.registry import PromptRegistry
 
 logger = logging.getLogger(__name__)
@@ -307,6 +307,15 @@ class StoryPipeline:
                 # attempt that just ran out, so it can only make things worse;
                 # let run() fall back while there is still time to answer.
                 raise
+            except FallbackTriggered as e:
+                logger.warning(f"{stage} attempt {attempt} error: {e}")
+                if not e.retryable:
+                    logger.warning(
+                        "%s stopped after a deterministic output-token limit; "
+                        "retrying unchanged would only repeat the charge",
+                        stage,
+                    )
+                    break
             except Exception as e:
                 logger.warning(f"{stage} attempt {attempt} error: {e}")
         return None

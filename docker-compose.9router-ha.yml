@@ -148,13 +148,18 @@ services:
 
   engine:
     environment:
+      # 9router is an adapter under the main `custom` provider, not a
+      # replacement for the paid FPT connection. It remains explicitly off by
+      # default even when its endpoint configuration is preserved here.
+      CUSTOM_LLM_ADAPTERS: ${CUSTOM_LLM_ADAPTERS:-fpt,9router}
+      CUSTOM_LLM_9ROUTER_ENABLED: ${CUSTOM_LLM_9ROUTER_ENABLED:-false}
       # Container-to-container, so this stays 20128 regardless of the host
       # port the balancer is published on.
-      CUSTOM_LLM_URL: http://9router-lb:20128/v1/chat/completions
+      CUSTOM_LLM_9ROUTER_URL: http://9router-lb:20128/v1/chat/completions
       # Empty on purpose: the balancer replaces the Authorization header with
       # the key belonging to the replica it picked. A key set here would be
       # overwritten, and would be wrong for one of the two replicas anyway.
-      CUSTOM_LLM_API_KEY: ""
+      CUSTOM_LLM_9ROUTER_API_KEY: ""
       # `ag/gemini-3-flash-agent` is what the latency spec pins (4.6-5.9s per
       # call) but it is an Antigravity model: it needs an account connected in
       # each replica's dashboard and answers
@@ -166,23 +171,21 @@ services:
       # north-mini-code is unsupported; nemotron returns usable content.
       # Pinning it also prevents the combo from spending a failed request on
       # either retired model before reaching the working one.
-      CUSTOM_LLM_MODEL: ${CUSTOM_LLM_MODEL:-oc/nemotron-3-ultra-free}
+      CUSTOM_LLM_9ROUTER_MODEL: ${CUSTOM_LLM_9ROUTER_MODEL:-oc/nemotron-3-ultra-free}
       # A ceiling, not a target. With thinking disabled and
       # reasoning_effort=none, a production planner and writer completed with
       # 598 and 569 output tokens respectively under this 4096 ceiling.
       CUSTOM_LLM_MAX_TOKENS: ${CUSTOM_LLM_MAX_TOKENS:-4096}
       # Thinking off by default: measured COMPLETE + faster (see docs/10 §4
       # and scripts/probe-stream-thinking.py); nemotron answers 400 with it on.
-      CUSTOM_LLM_THINKING: ${CUSTOM_LLM_THINKING:-disabled}
+      CUSTOM_LLM_9ROUTER_THINKING: ${CUSTOM_LLM_9ROUTER_THINKING:-disabled}
       # OpenCode's OpenAI-compatible reasoning models ignore the `thinking`
       # object above but honor reasoning_effort. On the production planner,
       # `none` reduced 135.6s to 7.7s while preserving a complete JSON answer.
-      CUSTOM_LLM_REASONING_EFFORT: ${CUSTOM_LLM_REASONING_EFFORT:-none}
-      # Production fallback order: deepseek (paid key) first, then openrouter
-      # (free, 2-3 keys in rotation), then custom (the 9router HA balancer) as
-      # the last resort. Names without credentials are skipped, so deepseek is
-      # harmless until DEEPSEEK_API_KEY is set.
-      LLM_CHAIN: ${LLM_CHAIN:-deepseek,openrouter,custom}
+      CUSTOM_LLM_9ROUTER_REASONING_EFFORT: ${CUSTOM_LLM_9ROUTER_REASONING_EFFORT:-none}
+      # The outer router sees one custom provider. FPT -> 9router selection is
+      # handled by CUSTOM_LLM_ADAPTERS inside that provider.
+      LLM_CHAIN: ${LLM_CHAIN:-custom}
       # Round-robin the entry point so neither provider absorbs every call --
       # entering at the head every time is how OpenRouter's daily cap got spent
       # in one afternoon of testing. The chain is rotated, not shortened: a

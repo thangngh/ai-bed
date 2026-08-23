@@ -11,6 +11,15 @@ class EmptyCompletionError(Exception):
     """
 
 
+class OutputTokenLimitError(EmptyCompletionError):
+    """The output allowance ended before the provider emitted usable text.
+
+    Retrying the identical request with the identical limit only repeats the
+    charge. Routers may still try another configured provider, but the
+    pipeline should not replay the entire provider chain unchanged.
+    """
+
+
 def build_messages(prompt: str, system: str = "") -> list[dict]:
     """Chat messages for the OpenAI-compatible providers.
 
