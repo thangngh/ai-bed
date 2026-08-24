@@ -7,6 +7,16 @@ import { Story } from '../../modules/story/entities/story.entity';
 import { StorySection } from '../../modules/story/entities/story-section.entity';
 import { MemoryItem } from '../../modules/memory/entities/memory-item.entity';
 import { AdminUser } from '../../modules/admin/entities/admin-user.entity';
+import {
+  TrafficEvent,
+  TrafficHourly,
+  LlmUsageEvent,
+  LlmUsageHourly,
+  IpRule,
+  IpState,
+  Alert,
+  AdminSetting,
+} from '../../modules/admin/dashboard/entities';
 
 export function makeDataSource(entities: any[]): DataSource {
   return new DataSource({
@@ -18,7 +28,14 @@ export function makeDataSource(entities: any[]): DataSource {
 }
 
 export async function openTestDataSources() {
-  const core = makeDataSource([Tenant, ChildProfile, Feedback, AdminUser]);
+  // Must mirror the 'core' connection's entity list in app.module.ts exactly,
+  // or DashboardModule's repositories cannot resolve once CORE_TOKEN is
+  // overridden with this DataSource in integration tests.
+  const core = makeDataSource([
+    Tenant, ChildProfile, Feedback, AdminUser,
+    TrafficEvent, TrafficHourly, LlmUsageEvent, LlmUsageHourly,
+    IpRule, IpState, Alert, AdminSetting,
+  ]);
   const local = makeDataSource([Story, StorySection, MemoryItem]);
   await core.initialize();
   await local.initialize();

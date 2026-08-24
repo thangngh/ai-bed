@@ -11,4 +11,10 @@ export default registerAs('engine', () => ({
   timeoutMs: parseInt(process.env.ENGINE_TIMEOUT_MS || '60000', 10),
   retryCount: parseInt(process.env.ENGINE_RETRY_COUNT || '2', 10),
   retryDelayMs: 1000,
+  // The provider and model the BE expects the Engine to use. These are
+  // recorded in llm_usage_event for cost/usage tracking. The Engine may
+  // fall back to a different provider internally -- this is the *configured*
+  // primary, not a guarantee of which one answered.
+  provider: process.env.ENGINE_LLM_PROVIDER || 'openai',
+  model: process.env.ENGINE_LLM_MODEL || 'gpt-4o-mini',
 }));

@@ -11,7 +11,7 @@ const TIMEOUT_MS = 15_000;
  * /admin from the tenant middleware for the same reason -- the console must not
  * create tenant rows just by being opened.
  */
-async function adminFetch<T>(path: string, init: RequestInit, withAuth: boolean): Promise<T> {
+export async function adminFetch<T>(path: string, init: RequestInit, withAuth: boolean): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(init.headers as Record<string, string> | undefined),

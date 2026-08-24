@@ -5,10 +5,11 @@ import { AdminAuthService } from './admin-auth.service';
 import { AdminFeedbackController } from './admin-feedback.controller';
 import { AdminFeedbackService } from './admin-feedback.service';
 import { AdminGuard } from './auth/admin.guard';
+import { DashboardModule } from './dashboard/dashboard.module';
 import adminConfig from './admin.config';
 
 @Module({
-  imports: [ConfigModule.forFeature(adminConfig)],
+  imports: [ConfigModule.forFeature(adminConfig), DashboardModule],
   controllers: [AdminAuthController, AdminFeedbackController],
   providers: [AdminAuthService, AdminFeedbackService, AdminGuard],
 })

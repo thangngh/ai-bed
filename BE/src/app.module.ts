@@ -16,6 +16,16 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { EngineGatewayModule } from './modules/engine-gateway/engine-gateway.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AdminUser } from './modules/admin/entities/admin-user.entity';
+import {
+  TrafficEvent,
+  TrafficHourly,
+  LlmUsageEvent,
+  LlmUsageHourly,
+  IpRule,
+  IpState,
+  Alert,
+  AdminSetting,
+} from './modules/admin/dashboard/entities';
 import adminConfig from './modules/admin/admin.config';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middleware';
@@ -47,7 +57,9 @@ import rateLimitConfig from './config/rate-limit.config';
       useFactory: (config: ConfigService) => ({
         type: 'sqlite',
         database: config.get('CORE_DB_PATH', 'data/core.db'),
-        entities: [Tenant, ChildProfile, Feedback, AdminUser],
+        entities: [Tenant, ChildProfile, Feedback, AdminUser,
+          TrafficEvent, TrafficHourly, LlmUsageEvent, LlmUsageHourly,
+          IpRule, IpState, Alert, AdminSetting],
         synchronize: config.get('NODE_ENV') === 'development',
       }),
       inject: [ConfigService],

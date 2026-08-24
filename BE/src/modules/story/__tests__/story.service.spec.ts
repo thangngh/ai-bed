@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { StoryService } from '../story.service';
 import { Story } from '../entities/story.entity';
 import { StorySection } from '../entities/story-section.entity';
@@ -8,14 +9,16 @@ import { ChildService } from '../../child/child.service';
 import { MemoryService } from '../../memory/memory.service';
 import { EngineGatewayService } from '../../engine-gateway/engine-gateway.service';
 import { QueueService } from '../../../common/services/queue.service';
+import { DashboardService } from '../../admin/dashboard/services/dashboard.service';
 
 describe('StoryService', () => {
   let service: StoryService;
   let dataSource: DataSource;
   let storyRepo: Repository<Story>;
+  let module: import('@nestjs/testing').TestingModule;
 
   beforeAll(async () => {
-    const module = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         StoryService,
         {
@@ -37,7 +40,7 @@ describe('StoryService', () => {
         },
         {
           provide: MemoryService,
-          useValue: { getRelevant: jest.fn(), bulkCreate: jest.fn() },
+          useValue: { getRelevant: jest.fn(), bulkCreate: jest.fn(), extractFromStory: jest.fn() },
         },
         {
           provide: EngineGatewayService,
@@ -46,6 +49,17 @@ describe('StoryService', () => {
         {
           provide: QueueService,
           useValue: { schedule: jest.fn((_t, fn) => fn()) },
+        },
+        {
+          provide: DashboardService,
+          useValue: {
+            estimatePromptTokens: jest.fn().mockReturnValue(100),
+            recordLlmUsage: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn((key, def) => def) },
         },
       ],
     }).compile();
@@ -89,6 +103,45 @@ describe('StoryService', () => {
     expect(result).toBeNull();
   });
 
+  it('still returns the created story when dashboard usage recording rejects', async () => {
+    // recordLlmUsage() is called fire-and-forget via `.catch()` in
+    // StoryService.create(). If that `.catch()` were ever removed, this
+    // rejection would become an unhandled promise rejection and/or the
+    // failure would surface before `create()` resolves -- this test is
+    // meant to go red in that case.
+    const childService = module.get(ChildService);
+    const memoryService = module.get(MemoryService);
+    const engineGateway = module.get(EngineGatewayService);
+    const dashboardService = module.get(DashboardService);
+
+    (memoryService.getRelevant as jest.Mock).mockResolvedValue([]);
+    (childService.getOrCreate as jest.Mock).mockResolvedValue({
+      childId: 'child-1',
+      childName: 'Bé An',
+      age: 4,
+      gender: '',
+      preferredCharacters: '',
+    });
+    (engineGateway.generate as jest.Mock).mockResolvedValue({
+      requestId: 'req-1',
+      title: 'Chuyến phiêu lưu',
+      content: [],
+      safetyStatus: 'APPROVED',
+      llmCalls: 1,
+      retryCount: 0,
+      latencyMs: 1000,
+      wordCount: 50,
+      isFallback: false,
+    });
+    (dashboardService.recordLlmUsage as jest.Mock).mockRejectedValueOnce(new Error('dashboard db down'));
+
+    const result = await service.create(
+      { child_name: 'Bé An', age: 4, theme: 'Động vật' } as any,
+      't1',
+    );
+
+    expect(result).toBeDefined();
+    expect(result.title).toBe('Chuyến phiêu lưu');
   it('filters latest stories by child_id when names are duplicated', async () => {
     const saveStory = async (storyId: string, childId: string) => {
       const story = new Story();
