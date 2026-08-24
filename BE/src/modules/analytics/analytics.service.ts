@@ -5,6 +5,7 @@ import { Story } from '../story/entities/story.entity';
 import { Feedback } from '../feedback/entities/feedback.entity';
 import { MemoryItem } from '../memory/entities/memory-item.entity';
 import { ChildService } from '../child/child.service';
+import { vietnamDateKey } from '../../common/time/vietnam-time';
 
 export interface StoryStats {
   total_stories: number;
@@ -70,7 +71,7 @@ export class AnalyticsService {
       themeSet.add(s.theme);
       themeMap.set(s.theme, (themeMap.get(s.theme) || 0) + 1);
       if (s.createdAt) {
-        const day = s.createdAt.slice(0, 10);
+        const day = vietnamDateKey(s.createdAt);
         dayMap.set(day, (dayMap.get(day) || 0) + 1);
       }
       if (s.wordCount != null) {
@@ -86,11 +87,14 @@ export class AnalyticsService {
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     const stories_per_day: { day: string; count: number }[] = [];
+    // Work with calendar keys rather than the server's local zone. Containers
+    // run in UTC, while every day shown to parents is a Vietnam day (UTC+7).
+    const vietnamToday = new Date(`${vietnamDateKey(new Date())}T00:00:00Z`);
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
+      const d = new Date(vietnamToday);
+      d.setUTCDate(d.getUTCDate() - i);
       const dayKey = d.toISOString().slice(0, 10);
-      stories_per_day.push({ day: DAY_NAMES[d.getDay()], count: dayMap.get(dayKey) || 0 });
+      stories_per_day.push({ day: DAY_NAMES[d.getUTCDay()], count: dayMap.get(dayKey) || 0 });
     }
 
     const avg_word_count = wordCountN > 0 ? wordCountSum / wordCountN : 0;

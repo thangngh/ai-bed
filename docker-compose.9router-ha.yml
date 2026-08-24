@@ -148,39 +148,44 @@ services:
 
   engine:
     environment:
+      # 9router is an adapter under the main `custom` provider, not a
+      # replacement for the paid FPT connection. It remains explicitly off by
+      # default even when its endpoint configuration is preserved here.
+      CUSTOM_LLM_ADAPTERS: ${CUSTOM_LLM_ADAPTERS:-fpt,9router}
+      CUSTOM_LLM_9ROUTER_ENABLED: ${CUSTOM_LLM_9ROUTER_ENABLED:-false}
       # Container-to-container, so this stays 20128 regardless of the host
       # port the balancer is published on.
-      CUSTOM_LLM_URL: http://9router-lb:20128/v1/chat/completions
+      CUSTOM_LLM_9ROUTER_URL: http://9router-lb:20128/v1/chat/completions
       # Empty on purpose: the balancer replaces the Authorization header with
       # the key belonging to the replica it picked. A key set here would be
       # overwritten, and would be wrong for one of the two replicas anyway.
-      CUSTOM_LLM_API_KEY: ""
+      CUSTOM_LLM_9ROUTER_API_KEY: ""
       # `ag/gemini-3-flash-agent` is what the latency spec pins (4.6-5.9s per
       # call) but it is an Antigravity model: it needs an account connected in
       # each replica's dashboard and answers
       # `No active credentials for provider: antigravity` without one. A
       # freshly bootstrapped replica can only serve the anonymous `oc/` tier.
       #
-      # Of that tier, deepseek-v4-flash is the one to pick: 5.6-9.8s on a short
-      # prompt against 6-21s for nemotron-3-ultra and 36-45s for
-      # north-mini-code, measured through the balancer and both replicas
-      # (scripts/probe-9router-models.mjs). Not the `opencode` combo, which
-      # picks among all three and inherits the slowest.
-      CUSTOM_LLM_MODEL: ${CUSTOM_LLM_MODEL:-oc/deepseek-v4-flash-free}
-      # The `oc/` models are reasoning models and emit content only after the
-      # chain of thought. At the client default of 4096 the writer stage came
-      # back `finish_reason: "length"`, `reasoning_tokens: 4096`,
-      # `content: ""` -- the entire budget spent thinking. The same prompt at
-      # 16000 finished with `stop` and a complete JSON story.
-      CUSTOM_LLM_MAX_TOKENS: ${CUSTOM_LLM_MAX_TOKENS:-16000}
+      # Probe the concrete anonymous backends instead of using the `opencode`
+      # combo. As of 2026-08-21 deepseek-v4-flash is unavailable and
+      # north-mini-code is unsupported; nemotron returns usable content.
+      # Pinning it also prevents the combo from spending a failed request on
+      # either retired model before reaching the working one.
+      CUSTOM_LLM_9ROUTER_MODEL: ${CUSTOM_LLM_9ROUTER_MODEL:-oc/nemotron-3-ultra-free}
+      # A ceiling, not a target. With thinking disabled and
+      # reasoning_effort=none, a production planner and writer completed with
+      # 598 and 569 output tokens respectively under this 4096 ceiling.
+      CUSTOM_LLM_MAX_TOKENS: ${CUSTOM_LLM_MAX_TOKENS:-4096}
       # Thinking off by default: measured COMPLETE + faster (see docs/10 §4
       # and scripts/probe-stream-thinking.py); nemotron answers 400 with it on.
-      CUSTOM_LLM_THINKING: ${CUSTOM_LLM_THINKING:-disabled}
-      # Production fallback order: deepseek (paid key) first, then openrouter
-      # (free, 2-3 keys in rotation), then custom (the 9router HA balancer) as
-      # the last resort. Names without credentials are skipped, so deepseek is
-      # harmless until DEEPSEEK_API_KEY is set.
-      LLM_CHAIN: ${LLM_CHAIN:-deepseek,openrouter,custom}
+      CUSTOM_LLM_9ROUTER_THINKING: ${CUSTOM_LLM_9ROUTER_THINKING:-disabled}
+      # OpenCode's OpenAI-compatible reasoning models ignore the `thinking`
+      # object above but honor reasoning_effort. On the production planner,
+      # `none` reduced 135.6s to 7.7s while preserving a complete JSON answer.
+      CUSTOM_LLM_9ROUTER_REASONING_EFFORT: ${CUSTOM_LLM_9ROUTER_REASONING_EFFORT:-none}
+      # The outer router sees one custom provider. FPT -> 9router selection is
+      # handled by CUSTOM_LLM_ADAPTERS inside that provider.
+      LLM_CHAIN: ${LLM_CHAIN:-custom}
       # Round-robin the entry point so neither provider absorbs every call --
       # entering at the head every time is how OpenRouter's daily cap got spent
       # in one afternoon of testing. The chain is rotated, not shortened: a
@@ -193,26 +198,31 @@ services:
       # fallback, so the budget is raised to fit the provider that is
       # actually available. Put it back to 45 with an `ag/` model connected.
       #
-      # This plus MEMORY_EXTRACT_TIMEOUT_SECONDS plus HTTP overhead has to
-      # stay under ENGINE_TIMEOUT_MS, which in turn stays under the 240s
-      # FE/nginx and the SPA allow. At 120 + 20 against a 150s BE deadline a
-      # run came back 502 at 150.4s -- the one failure the budget exists to
-      # prevent -- and at 100 the writer ran out of time and returned the
-      # fallback. 150 + 15 under a 180s deadline holds both ends.
-      PIPELINE_BUDGET_SECONDS: ${PIPELINE_BUDGET_SECONDS:-150}
-      MEMORY_EXTRACT_TIMEOUT_SECONDS: ${MEMORY_EXTRACT_TIMEOUT_SECONDS:-15}
+      # This plus HTTP overhead has to stay under ENGINE_TIMEOUT_MS, which in
+      # turn stays under the 240s FE/nginx and SPA ceilings. With
+      # reasoning_effort=none the measured production path was planner 9.5s +
+      # writer 106.3s, but the reviewer was cut off at the old 150s boundary.
+      # 210s leaves the safety gate enough room below the 230s BE deadline.
+      PIPELINE_BUDGET_SECONDS: ${PIPELINE_BUDGET_SECONDS:-210}
+      # The story itself needs planner + writer + safety reviewer. Memory
+      # extraction is an optional fourth LLM call after that work is complete;
+      # disable it by default in the token-saving profile. Existing stored
+      # memories are still read and used for personalization.
+      MEMORY_EXTRACT_ENABLED: ${MEMORY_EXTRACT_ENABLED:-false}
+      MEMORY_EXTRACT_TIMEOUT_SECONDS: ${MEMORY_EXTRACT_TIMEOUT_SECONDS:-5}
     depends_on:
       9router-lb:
         condition: service_healthy
 
   backend:
     environment:
-      # Above the Engine's raised budget *plus* memory extraction, which runs
-      # after the pipeline and outside the budget (bounded separately by
-      # MEMORY_EXTRACT_TIMEOUT_SECONDS). Below the 240s that FE/nginx and the
-      # SPA allow. Anything tighter cuts off a slow-but-successful generation
-      # and returns it as a 502.
-      ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-180000}
+      # Keep the persistence side aligned with the Engine toggle above.
+      MEMORY_EXTRACT_ENABLED: ${MEMORY_EXTRACT_ENABLED:-false}
+      # Above the Engine's raised budget plus HTTP overhead, and below the 240s
+      # that FE/nginx and the SPA allow. If memory extraction is re-enabled,
+      # its timeout also has to fit here. Anything tighter cuts off a
+      # slow-but-successful generation and returns it as a 502.
+      ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-230000}
 
   # Cloudflare Tunnel (opt-in: start with
   # `docker compose -f docker-compose.yml -f docker-compose.9router-ha.yml

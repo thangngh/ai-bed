@@ -4,6 +4,7 @@ import time
 import pytest
 from core.pipeline import StoryPipeline, FALLBACK_STORY, DEFAULT_BUDGET_SECONDS
 from core.llm.client import BaseLLMClient
+from core.llm.router import FallbackTriggered
 
 
 class MockRouter:
@@ -44,6 +45,22 @@ class TestStoryPipeline:
         assert result.success is True
         assert result.is_fallback is True
         assert result.title == "Câu chuyện bất ngờ"
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_deterministic_output_token_limit(self):
+        class TokenLimitedRouter:
+            def __init__(self):
+                self.call_count = 0
+
+            async def complete(self, prompt, stage="", accept=None, system=""):
+                self.call_count += 1
+                raise FallbackTriggered("output token limit", retryable=False)
+
+        router = TokenLimitedRouter()
+        result = await StoryPipeline(router).run({})
+
+        assert result.is_fallback is True
+        assert router.call_count == 1
 
     @pytest.mark.asyncio
     async def test_survives_noisy_json_output(self):

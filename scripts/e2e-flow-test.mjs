@@ -30,8 +30,8 @@
  * fail step 1 and every /api path, which is the intended signal: the prefix is
  * a proxy convention, not part of the BE.
  *
- * --keep leaves the child profile behind; by default the run deletes it, which
- * also exercises the 204-no-body path that used to crash the SPA's client.
+ * --keep leaves the child profile behind; by default the run deletes it through
+ * the POST compatibility route and exercises the 204-no-body response.
  *
  * Exit code 0 only when every step passes.
  */
@@ -50,7 +50,8 @@ const flag = (name, fallback) => {
 const CONFIG = {
   base: flag('base', process.env.E2E_BASE_URL || 'http://localhost'),
   outDir: flag('out', 'test-results'),
-  // Above the SPA's own STORY_TIMEOUT_MS (180s) so this runner is never the
+  // Just below the SPA/nginx 240s ceiling so this runner catches an outer
+  // timeout instead of waiting after the browser would already have stopped.
   // component that gives up first.
   timeoutMs: Number(flag('timeout', 200000)),
   keepProfile: args.includes('--keep'),
@@ -280,6 +281,7 @@ async function main() {
   // 4. The story. This is the only slow step: BE -> Engine -> LLM.
   await step('create a story (POST /api/story/create)', async () => {
     const body = {
+      child_id: childId,
       child_name: CHILD.child_name,
       age: CHILD.age,
       theme: STORY_INPUT.theme,
@@ -290,7 +292,12 @@ async function main() {
       gender: CHILD.gender,
       favorite_character: CHILD.preferred_characters,
     };
-    const res = await request('POST', api('/story/create'), { headers: auth, body }, CONFIG.timeoutMs);
+    const res = await request(
+      'POST',
+      api('/story/create'),
+      { headers: { ...auth, 'x-story-heartbeat': '1' }, body },
+      CONFIG.timeoutMs,
+    );
     story = res.json;
     storyId = res.json?.story_id ?? null;
 
@@ -324,7 +331,7 @@ async function main() {
           'is in Vietnamese',
           /[àáâãèéêìíòóôõùúýăđĩũơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(prose),
         ),
-        assert('within the SPA\'s 180s ceiling', res.latencyMs < 180000, `${res.latencyMs}ms`),
+        assert('within the SPA\'s 240s ceiling', res.latencyMs < 240000, `${res.latencyMs}ms`),
       ],
     };
   });
@@ -342,7 +349,7 @@ async function main() {
     const res = await request('GET', api(`/story/${storyId}`), { headers: auth });
     const sections = res.json?.sections || [];
     return {
-      detail: { status: res.status, sections: sections.length, child_name: res.json?.child_name, age: res.json?.age },
+      detail: { status: res.status, sections: sections.length, child_id: res.json?.child_id, child_name: res.json?.child_name, age: res.json?.age },
       checks: [
         assert('200', res.ok, `status ${res.status}`),
         assert('the sections were persisted', sections.length > 0, `${sections.length} rows`),
@@ -353,6 +360,7 @@ async function main() {
         ),
         assert('in order', sections.every((s, i) => i === 0 || (s.order ?? 0) >= (sections[i - 1].order ?? 0))),
         assert('knows which child it was written for', res.json?.child_name === CHILD.child_name, res.json?.child_name),
+        assert('keeps the exact child id', res.json?.child_id === childId, res.json?.child_id),
         assert('carries the age', res.json?.age === CHILD.age, String(res.json?.age)),
       ],
     };
@@ -372,7 +380,7 @@ async function main() {
   });
 
   await step('the saved story appears in the list (GET /api/story/latest)', async () => {
-    const res = await request('GET', api(`/story/latest?limit=50&child_name=${encodeURIComponent(CHILD.child_name)}`), { headers: auth });
+    const res = await request('GET', api(`/story/latest?limit=50&child_id=${encodeURIComponent(childId)}`), { headers: auth });
     const found = (res.json?.stories || []).find((s) => s.story_id === storyId);
     return {
       detail: { count: res.json?.stories?.length ?? 0 },
@@ -388,6 +396,7 @@ async function main() {
   await step('send feedback (POST /api/story/feedback)', async () => {
     const body = {
       story_id: storyId,
+      child_id: childId,
       child_name: CHILD.child_name,
       rating: 5,
       note: 'Bé rất thích, nghe hết truyện và đòi nghe thêm.',
@@ -437,8 +446,8 @@ async function main() {
   });
 
   if (!CONFIG.keepProfile) {
-    await step('delete the profile (DELETE /api/child-profile/:id)', async () => {
-      const res = await request('DELETE', api(`/child-profile/${childId}`), { headers: auth });
+    await step('delete the profile (POST /api/child-profile/:id/delete)', async () => {
+      const res = await request('POST', api(`/child-profile/${childId}/delete`), { headers: auth });
       return {
         detail: { status: res.status },
         checks: [

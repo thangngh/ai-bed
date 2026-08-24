@@ -1,11 +1,55 @@
 import asyncio
 import pytest
 from core.memory_extractor import MemoryExtractor
+from core.orchestrator import StoryOrchestrator, _memory_extract_enabled
+from core.pipeline import PipelineResult
 
 
 class MockRouter:
     async def complete(self, prompt, stage="", system=""):
         return '{"memories": [{"type": "interest", "key": "favorite_theme", "value": "rồng", "confidence": 0.8, "source": "..."}]}'
+
+
+def test_memory_extraction_flag_defaults_on(monkeypatch):
+    monkeypatch.delenv("MEMORY_EXTRACT_ENABLED", raising=False)
+    assert _memory_extract_enabled() is True
+
+
+def test_memory_extraction_can_be_disabled_to_save_an_llm_call(monkeypatch):
+    monkeypatch.setenv("MEMORY_EXTRACT_ENABLED", "false")
+    assert _memory_extract_enabled() is False
+
+
+@pytest.mark.asyncio
+async def test_disabled_memory_extraction_skips_the_fourth_llm_call():
+    class Registry:
+        def assemble(self, age, data):
+            return {"system": "", "developer": "", "user": ""}
+
+    class Pipeline:
+        async def run(self, prompts):
+            return PipelineResult(
+                success=True,
+                title="Truyện ngắn",
+                content=[{"type": "opening", "text": "Ngày xửa ngày xưa.", "order": 0}],
+                safety_verdict="APPROVED",
+                llm_calls=3,
+            )
+
+    class ExtractorThatMustNotRun:
+        async def extract(self, *args, **kwargs):
+            raise AssertionError("memory extractor made an unnecessary fourth LLM call")
+
+    orchestrator = StoryOrchestrator.__new__(StoryOrchestrator)
+    orchestrator.registry = Registry()
+    orchestrator.pipeline = Pipeline()
+    orchestrator.extractor = ExtractorThatMustNotRun()
+    orchestrator.memory_extract_enabled = False
+
+    result = await orchestrator.generate({"child_name": "An", "age": 4, "theme": "Rừng"})
+
+    assert result["llm_calls"] == 3
+    assert result["memories"] == []
 
 
 class TestMemoryExtractor:

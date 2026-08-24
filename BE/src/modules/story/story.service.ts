@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { Story } from './entities/story.entity';
 import { StorySection } from './entities/story-section.entity';
@@ -183,12 +183,26 @@ export class StoryService {
     return recent.map(s => ({ title: s.title, theme: s.theme }));
   }
 
-  async getLatest(tenantId: string, childName?: string, limit = 10): Promise<Story[]> {
+  async getLatest(
+    tenantId: string,
+    childName?: string,
+    limit = 10,
+    childId?: string,
+  ): Promise<Story[]> {
     const where: any = { tenantId };
-    if (childName) {
+    if (childId) {
+      // UUID is the canonical identity. This is what the SPA uses, so two
+      // children with the same display name keep separate story shelves.
+      where.childId = childId;
+    } else if (childName) {
+      // Backward compatibility for name-only clients: include every matching
+      // profile instead of silently choosing the first duplicate.
       const profiles = await this.childService.findByTenant(tenantId);
-      const child = profiles.find(p => p.childName === childName);
-      if (child) where.childId = child.childId;
+      const childIds = profiles
+        .filter((profile) => profile.childName === childName)
+        .map((profile) => profile.childId);
+      if (childIds.length === 0) return [];
+      where.childId = In(childIds);
     }
     return this.storyRepo.find({
       where,

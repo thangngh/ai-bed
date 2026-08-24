@@ -27,6 +27,8 @@ export interface StorySegments {
 
 export interface BedtimeStory {
   id: string;
+  /** Canonical owner; names are display labels and may be duplicated. */
+  childId?: string;
   title: string;
   childName: string;
   childAge: number;

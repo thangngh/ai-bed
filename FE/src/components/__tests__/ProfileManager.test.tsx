@@ -59,16 +59,16 @@ describe('ProfileManager', () => {
     expect(onSelectChild).toHaveBeenCalledWith(created);
   });
 
-  it('shows a message when the name is already taken', async () => {
+  it('shows a generic message for a real save failure', async () => {
     const { childClient } = await import('../../utils/childClient');
     const { ApiError } = await import('../../utils/api');
-    vi.mocked(childClient.create).mockRejectedValue(new ApiError('API_ERROR', 'Conflict', 409));
+    vi.mocked(childClient.create).mockRejectedValue(new ApiError('API_ERROR', 'Server error', 500));
 
     render(<ProfileManager {...baseProps} children={[]} />);
     fireEvent.click(screen.getByRole('button', { name: /thêm hồ sơ bé/i }));
     fireEvent.change(screen.getByLabelText(/tên bé/i), { target: { value: 'Trung' } });
     fireEvent.click(screen.getByRole('button', { name: /thêm bé/i }));
 
-    expect(await screen.findByText(/đã có bé tên này rồi/i)).toBeInTheDocument();
+    expect(await screen.findByText(/lưu hồ sơ thất bại/i)).toBeInTheDocument();
   });
 });

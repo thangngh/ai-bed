@@ -22,7 +22,16 @@ export class FeedbackService {
   async submit(dto: CreateFeedbackDto, tenantId: string): Promise<{ feedback_id: string }> {
     let childId: string | undefined;
 
-    if (dto.child_name) {
+    if (dto.child_id) {
+      const profile = await this.childService.findById(dto.child_id);
+      if (!profile || profile.tenantId !== tenantId || profile.isActive !== 1) {
+        throw new NotFoundException('Child profile not found');
+      }
+      childId = profile.childId;
+    } else if (dto.child_name) {
+      // Legacy fallback. findByName deliberately returns null when duplicate
+      // names make the lookup ambiguous, rather than reinforcing the wrong
+      // child's memory.
       const profile = await this.childService.findByName(tenantId, dto.child_name);
       if (profile) {
         childId = profile.childId;

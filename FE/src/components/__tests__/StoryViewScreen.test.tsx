@@ -40,6 +40,24 @@ describe('StoryViewScreen', () => {
     expect(screen.getByText(/Dũng cảm sẽ giúp con vượt qua khó khăn/i)).toBeInTheDocument();
   });
 
+  it('uses a quiet high-contrast moral panel in night mode', () => {
+    render(
+      <StoryViewScreen
+        story={story}
+        onReadAgain={vi.fn()}
+        onCreateNew={vi.fn()}
+        onGoToFeedback={vi.fn()}
+        onSaveStory={vi.fn()}
+        isSaved={false}
+        isNightMode
+      />,
+    );
+
+    const panel = screen.getByRole('region', { name: /bài học nhân văn gửi gắm/i });
+    expect(panel).toHaveClass('bg-slate-950', 'border-slate-700', 'text-slate-100');
+    expect(panel).not.toHaveClass('bg-amber-500/10');
+  });
+
   it('calls onSaveStory when save button is clicked', () => {
     const onSaveStory = vi.fn();
     render(

@@ -25,6 +25,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist/
 COPY --from=build /app/node_modules ./node_modules/
 COPY --from=build /app/package.json ./
+COPY --from=build /app/scripts/create-all-tables.js ./scripts/create-all-tables.js
 
 # The SQLite files are created on first boot inside the `be-data` volume that
 # compose mounts here. Copying the host's data/ would bake a developer's
@@ -40,4 +41,7 @@ RUN chown -R node:node /app
 USER node
 
 EXPOSE 3001
-CMD ["node", "dist/main"]
+# Production deliberately keeps TypeORM synchronize off. Run the idempotent
+# schema initializer before Nest so a fresh volume has every business table;
+# CREATE TABLE IF NOT EXISTS preserves existing data, including admin_users.
+CMD ["sh", "-c", "node scripts/create-all-tables.js && exec node dist/main"]

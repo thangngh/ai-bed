@@ -7,6 +7,7 @@ import { StorySection } from '../../story/entities/story-section.entity';
 import { Feedback } from '../../feedback/entities/feedback.entity';
 import { MemoryItem } from '../../memory/entities/memory-item.entity';
 import { ChildService } from '../../child/child.service';
+import { vietnamDateBoundaryUtc, vietnamDateKey } from '../../../common/time/vietnam-time';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
@@ -133,6 +134,33 @@ describe('AnalyticsService', () => {
       expect(stats.top_themes[0].count).toBe(2);
       expect(stats.avg_word_count).toBeGreaterThan(200);
       expect(stats.stories_per_day).toHaveLength(7);
+    });
+
+    it('counts a story after Vietnam midnight in the Vietnam calendar day', async () => {
+      const vietnamToday = vietnamDateKey(new Date());
+      const vietnamMidnightUtc = new Date(
+        `${vietnamDateBoundaryUtc(vietnamToday).replace(' ', 'T')}Z`,
+      );
+      const oneAmVietnam = new Date(vietnamMidnightUtc.getTime() + 60 * 60 * 1000)
+        .toISOString()
+        .replace('T', ' ')
+        .replace('Z', '');
+
+      await localDs.manager.save(Story, {
+        storyId: 'story-vietnam-day',
+        tenantId: 't-vietnam-day',
+        childId: 'c-vietnam-day',
+        theme: 'giờ Việt Nam',
+        wordCount: 100,
+        isFallback: 0,
+        createdAt: oneAmVietnam,
+        title: 'Vietnam day boundary',
+        content: 'Content',
+        safetyStatus: 'APPROVED',
+      });
+
+      const stats = await service.getStoryStats('c-vietnam-day', 't-vietnam-day');
+      expect(stats.stories_per_day.at(-1)?.count).toBe(1);
     });
   });
 
