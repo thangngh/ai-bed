@@ -72,6 +72,8 @@ services:
     # one-shot copy script connect from the host during development without
     # publishing the DB to the LAN/internet, matching the posture the backend
     # and engine services already use (see the `expose`-only comment below).
+    # Host port 5434, not 5432/5433: both were already bound by other
+    # unrelated local dev containers on this host.
     ports:
       - "127.0.0.1:5434:5432"
     volumes:
@@ -110,8 +112,9 @@ services:
       ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-60000}
       ENGINE_API_KEY: ${ENGINE_API_KEY:-}
       # Same override reasoning as ENGINE_URL above: BE/.env's DATABASE_URL is
-      # the host-development value (localhost:5432); inside the compose
-      # network the core datasource reaches Postgres by service name.
+      # the host-development value (localhost, port per the postgres service's
+      # `ports:` entry above); inside the compose network the core datasource
+      # reaches Postgres by service name.
       DATABASE_URL: postgresql://ai_bed:${POSTGRES_PASSWORD}@postgres:5432/ai_bed
     depends_on:
       engine:
