@@ -55,12 +55,12 @@ import rateLimitConfig from './config/rate-limit.config';
     TypeOrmModule.forRootAsync({
       name: 'core',
       useFactory: (config: ConfigService) => ({
-        type: 'sqlite',
-        database: config.get('CORE_DB_PATH', 'data/core.db'),
+        type: 'postgres',
+        url: config.get('DATABASE_URL'),
         entities: [Tenant, ChildProfile, Feedback, AdminUser,
           TrafficEvent, TrafficHourly, LlmUsageEvent, LlmUsageHourly,
           IpRule, IpState, Alert, AdminSetting],
-        synchronize: config.get('NODE_ENV') === 'development',
+        synchronize: false,
       }),
       inject: [ConfigService],
     }),
