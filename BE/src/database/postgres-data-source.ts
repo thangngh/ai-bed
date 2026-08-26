@@ -22,7 +22,7 @@ import {
 // follow-up plan lands, only the core+dashboard 12 are actually read/written
 // via Postgres at runtime — the `local` tables' schema needs to exist ahead
 // of their own per-tenant data cutover (spec §4 Phase 0).
-export const PostgresDataSource = new DataSource({
+const PostgresDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
   entities: [
