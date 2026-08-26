@@ -29,6 +29,12 @@ interface TableSpec {
   entity: EntityTarget<ObjectLiteral>;
   label: string;
   conflictColumns: string[];
+  // Set for tables whose PK is a Postgres serial/identity column
+  // (@PrimaryGeneratedColumn()). Upserting explicit id values copied from
+  // SQLite does not advance Postgres's own sequence, so after upserting we
+  // must bump the sequence past the max id we just wrote, or future
+  // app-generated inserts could collide with migrated ids.
+  serialIdColumn?: string;
 }
 
 // Order matters: FK-referenced tables (tenants, child_profiles) must be
@@ -38,13 +44,13 @@ const CORE_TABLES: TableSpec[] = [
   { entity: ChildProfile, label: 'child_profiles', conflictColumns: ['childId'] },
   { entity: AdminUser, label: 'admin_users', conflictColumns: ['adminId'] },
   { entity: Feedback, label: 'feedbacks', conflictColumns: ['feedbackId'] },
-  { entity: TrafficEvent, label: 'traffic_event', conflictColumns: ['id'] },
+  { entity: TrafficEvent, label: 'traffic_event', conflictColumns: ['id'], serialIdColumn: 'id' },
   { entity: TrafficHourly, label: 'traffic_hourly', conflictColumns: ['ip', 'hourBucket', 'route', 'statusClass'] },
-  { entity: LlmUsageEvent, label: 'llm_usage_event', conflictColumns: ['id'] },
+  { entity: LlmUsageEvent, label: 'llm_usage_event', conflictColumns: ['id'], serialIdColumn: 'id' },
   { entity: LlmUsageHourly, label: 'llm_usage_hourly', conflictColumns: ['provider', 'model', 'hourBucket'] },
-  { entity: IpRule, label: 'ip_rules', conflictColumns: ['id'] },
+  { entity: IpRule, label: 'ip_rules', conflictColumns: ['id'], serialIdColumn: 'id' },
   { entity: IpState, label: 'ip_states', conflictColumns: ['ip'] },
-  { entity: Alert, label: 'alerts', conflictColumns: ['id'] },
+  { entity: Alert, label: 'alerts', conflictColumns: ['id'], serialIdColumn: 'id' },
   { entity: AdminSetting, label: 'admin_settings', conflictColumns: ['key'] },
 ];
 
@@ -61,6 +67,18 @@ async function main(): Promise<void> {
   const dryRun = process.argv.includes('--dry-run');
   const sqlite = makeSqliteSource();
   await sqlite.initialize();
+
+  if (dryRun) {
+    // Dry-run is a source-only, lightweight check: never touch Postgres.
+    for (const table of CORE_TABLES) {
+      const sourceRepo = sqlite.getRepository(table.entity);
+      const rows = await sourceRepo.find();
+      console.log(`[dry-run] ${table.label}: ${rows.length} row(s) would be copied`);
+    }
+    await sqlite.destroy();
+    return;
+  }
+
   await PostgresDataSource.initialize();
 
   let mismatches = 0;
@@ -68,14 +86,18 @@ async function main(): Promise<void> {
     const sourceRepo = sqlite.getRepository(table.entity);
     const rows = await sourceRepo.find();
 
-    if (dryRun) {
-      console.log(`[dry-run] ${table.label}: ${rows.length} row(s) would be copied`);
-      continue;
-    }
-
     if (rows.length > 0) {
       const targetRepo = PostgresDataSource.getRepository(table.entity);
       await targetRepo.upsert(rows, table.conflictColumns);
+
+      if (table.serialIdColumn) {
+        // Upserting explicit ids does not advance Postgres's own serial
+        // sequence, so bump it past the max id we just wrote.
+        const tableName = PostgresDataSource.getMetadata(table.entity).tableName;
+        await PostgresDataSource.query(
+          `SELECT setval(pg_get_serial_sequence('${tableName}', '${table.serialIdColumn}'), (SELECT COALESCE(MAX("${table.serialIdColumn}"), 1) FROM "${tableName}"))`,
+        );
+      }
     }
 
     const sourceCount = rows.length;
@@ -87,8 +109,6 @@ async function main(): Promise<void> {
 
   await sqlite.destroy();
   await PostgresDataSource.destroy();
-
-  if (dryRun) return;
 
   if (mismatches > 0) {
     console.error(`\n${mismatches} table(s) have mismatched row counts. Investigate before cutting over.`);
