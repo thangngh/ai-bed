@@ -62,6 +62,31 @@ services:
         aliases:
           - ${COMPOSE_PROJECT_NAME:-ai-bed}-engine
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ai_bed
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — see .env.example}
+      POSTGRES_DB: ai_bed
+    # Bound to loopback only: this lets `npm run migration:run` and the
+    # one-shot copy script connect from the host during development without
+    # publishing the DB to the LAN/internet, matching the posture the backend
+    # and engine services already use (see the `expose`-only comment below).
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_bed -d ai_bed"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+
   backend:
     build:
       context: ./BE
@@ -84,8 +109,14 @@ services:
       ENGINE_URL: http://${COMPOSE_PROJECT_NAME:-ai-bed}-engine:8000
       ENGINE_TIMEOUT_MS: ${ENGINE_TIMEOUT_MS:-60000}
       ENGINE_API_KEY: ${ENGINE_API_KEY:-}
+      # Same override reasoning as ENGINE_URL above: BE/.env's DATABASE_URL is
+      # the host-development value (localhost:5432); inside the compose
+      # network the core datasource reaches Postgres by service name.
+      DATABASE_URL: postgresql://ai_bed:${POSTGRES_PASSWORD}@postgres:5432/ai_bed
     depends_on:
       engine:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     security_opt:
@@ -140,7 +171,8 @@ services:
 
 volumes:
   be-data:
-  
+  pg-data:
+
 networks:
   isolated:
     name: ai-bed-isolated_default
