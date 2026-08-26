@@ -15,7 +15,8 @@
     "test:cov": "jest --coverage",
     "lint": "tsc --noEmit",
     "admin:create": "ts-node -P tsconfig.json scripts/create-admin.ts",
-    "check:core-orphans": "ts-node -P tsconfig.json scripts/check-core-orphans.ts"
+    "check:core-orphans": "ts-node -P tsconfig.json scripts/check-core-orphans.ts",
+    "migrate:core": "ts-node -P tsconfig.json scripts/migrate-core-to-postgres.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
