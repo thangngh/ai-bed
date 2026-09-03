@@ -321,7 +321,7 @@ describe('Postgres test harness', () => {
 
 - [ ] **Step 7: Run the harness test**
 
-Run: `cd BE && npx jest src/common/__tests__/test-db.spec.ts -v`
+Run: `cd BE && npx jest src/common/__tests__/test-db.spec.ts --verbose`
 Expected: PASS, all 3 tests. First run pulls `postgres:16-alpine` if absent, so allow a few minutes.
 
 If it fails with `TEST_PG_ADMIN_URL is unset`, `globalSetup` did not run — check the `<rootDir>` path in `package.json` and that Docker is up.
@@ -408,7 +408,7 @@ describe('single core datasource', () => {
 
 - [ ] **Step 2: Run it to make sure it fails**
 
-Run: `cd BE && npx jest src/common/__tests__/datasource.spec.ts -v`
+Run: `cd BE && npx jest src/common/__tests__/datasource.spec.ts --verbose`
 Expected: FAIL while compiling `AppModule` — Nest cannot resolve the repository providers registered against the missing `local` datasource token.
 
 - [ ] **Step 3: Point `app.module.ts` at one connection with all 16 entities**
@@ -483,7 +483,7 @@ Also update the now-misleading comment on the `sinceStr` line (`analytics.servic
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `cd BE && npx jest src/common/__tests__/datasource.spec.ts -v`
+Run: `cd BE && npx jest src/common/__tests__/datasource.spec.ts --verbose`
 Expected: PASS, all 3 tests.
 
 - [ ] **Step 7: Confirm no `'local'` datasource reference survives**
@@ -576,7 +576,7 @@ The `Tenant` import becomes unused — remove it.
 
 - [ ] **Step 2: Run it**
 
-Run: `cd BE && npx jest src/modules/tenant/__tests__/tenant.service.spec.ts -v`
+Run: `cd BE && npx jest src/modules/tenant/__tests__/tenant.service.spec.ts --verbose`
 Expected: PASS, 4 tests.
 
 - [ ] **Step 3: Transform the remaining five the same way**
@@ -619,7 +619,7 @@ cd BE && npx jest \
   src/modules/feedback/__tests__/feedback.service.spec.ts \
   src/modules/memory/__tests__/memory.service.spec.ts \
   src/modules/story/__tests__/story.service.spec.ts \
-  src/modules/analytics/__tests__/analytics.service.spec.ts -v
+  src/modules/analytics/__tests__/analytics.service.spec.ts --verbose
 ```
 
 Expected: PASS. **If assertions fail rather than the setup failing, that is the dialect fallout the spec warned about** — Postgres is stricter than SQLite. Fix each one on its merits; the common causes are:
@@ -670,7 +670,7 @@ import { openTestDataSource, closeTestDataSource } from '../../../common/__tests
 
 - [ ] **Step 2: Run it**
 
-Run: `cd BE && npx jest src/modules/admin/__tests__/admin-user.entity.spec.ts -v`
+Run: `cd BE && npx jest src/modules/admin/__tests__/admin-user.entity.spec.ts --verbose`
 Expected: PASS.
 
 - [ ] **Step 3: Transform the remaining four**
@@ -684,7 +684,7 @@ Expected: PASS.
 
 Run:
 ```bash
-cd BE && npx jest src/modules/admin/dashboard/__tests__/dashboard.service.spec.ts src/modules/admin/__tests__/admin-auth.service.spec.ts src/modules/admin/__tests__/admin-feedback.service.spec.ts src/modules/admin/__tests__/admin-user.entity.spec.ts src/modules/tenant/__tests__/tenant.controller.spec.ts -v
+cd BE && npx jest src/modules/admin/dashboard/__tests__/dashboard.service.spec.ts src/modules/admin/__tests__/admin-auth.service.spec.ts src/modules/admin/__tests__/admin-feedback.service.spec.ts src/modules/admin/__tests__/admin-user.entity.spec.ts src/modules/tenant/__tests__/tenant.controller.spec.ts --verbose
 ```
 
 Expected: PASS. Apply the same dialect-fallout guidance as Task 3, Step 4. `dashboard.service.spec.ts` is the most likely to surface real issues — it is the largest file and the one whose comments already flag driver-dependent behavior.
@@ -752,7 +752,7 @@ Update the `afterAll` comment — "app.close()/module.close() throw for named `f
 
 - [ ] **Step 2: Run it**
 
-Run: `cd BE && npx jest src/common/__tests__/admin-tenant-isolation.spec.ts -v`
+Run: `cd BE && npx jest src/common/__tests__/admin-tenant-isolation.spec.ts --verbose`
 Expected: PASS.
 
 - [ ] **Step 3: Transform the remaining four**
@@ -903,7 +903,7 @@ Append to the `describe('Postgres migrations', ...)` block in `BE/src/database/_
 
 - [ ] **Step 2: Run it to make sure it fails**
 
-Run: `cd BE && npx jest src/database/__tests__/migrations.spec.ts -v`
+Run: `cd BE && npx jest src/database/__tests__/migrations.spec.ts --verbose`
 Expected: FAIL — `expect(received).not.toContain("storage_backend")`.
 
 - [ ] **Step 3: Write the migration**
@@ -953,7 +953,7 @@ export class DropStorageBackend1756166400005 implements MigrationInterface {
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `cd BE && npx jest src/database/__tests__/migrations.spec.ts -v`
+Run: `cd BE && npx jest src/database/__tests__/migrations.spec.ts --verbose`
 Expected: PASS, all tests including the 16-table and foreign-key assertions.
 
 - [ ] **Step 6: Apply the migration to the dev database**
