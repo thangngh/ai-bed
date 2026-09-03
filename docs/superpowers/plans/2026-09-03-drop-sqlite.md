@@ -21,6 +21,8 @@
 - The commented-out `networks:` blocks in `docker-compose.yml` are an unrelated local change. Leave them exactly as found — do not revert and do not stage them.
 - The npm/pnpm dual-lockfile situation is out of scope. Keep `npm ci` in the Dockerfile and keep `package-lock.json`. Do not commit `pnpm-lock.yaml`.
 - Docker must be running for the test suite from Task 1 onward.
+- **`BE/.env`'s `DATABASE_URL` carries a stale password** that does not match the password the running Postgres container was created with (the container uses the root `.env`'s `POSTGRES_PASSWORD`, which is what `BE/.env.example` says `DATABASE_URL` should carry). Do **not** edit `BE/.env` or the root `.env` — they are gitignored credentials files and belong to the user. Every host-side command that needs a database connection supplies the password inline from the root `.env` instead, as the affected steps show. Commands running *inside* compose are unaffected: the `backend` service's `environment:` block already overrides `DATABASE_URL` with `${POSTGRES_PASSWORD}`.
+- **`BE/.env` sets `PORT=3007`**, while `expose`, nginx's upstream, and the backend healthcheck all address the container on 3001. Host-side boot checks must curl `:3007`; the compose fix is pinning `PORT: 3001` in the `backend` service's `environment:` block (Task 9, Step 2).
 
 ## Starting state you must expect
 
@@ -958,9 +960,12 @@ Expected: PASS, all tests including the 16-table and foreign-key assertions.
 
 - [ ] **Step 6: Apply the migration to the dev database**
 
+`BE/.env`'s `DATABASE_URL` carries a stale password that does not match the running container (see Global Constraints), so host-side database commands must take the password from the root `.env` inline. This never prints the value and never edits a credentials file:
+
 ```bash
 cd /e/pet-project/AI-BEDTIME && docker compose up -d postgres
-cd BE && npm run migration:run
+cd BE && PGPW=$(awk -F= '/^POSTGRES_PASSWORD=/{print $2}' ../.env) \
+  DATABASE_URL="postgresql://ai_bed:${PGPW}@localhost:5434/ai_bed" npm run migration:run
 docker exec ai-bedtime-postgres-1 psql -U ai_bed -d ai_bed -c '\d tenants'
 ```
 
@@ -1069,10 +1074,14 @@ Expected: `package.json` has no `sqlite` match. `package-lock.json` may keep tra
 
 - [ ] **Step 6: Verify `admin:create` works against Postgres**
 
+Same inline-`DATABASE_URL` treatment as Task 7 Step 6 — `BE/.env`'s copy is stale:
+
 ```bash
 cd /e/pet-project/AI-BEDTIME && docker compose up -d postgres
 cd BE
-ADMIN_PASSWORD='local-dev-password-123' npm run admin:create -- --username thang
+PGPW=$(awk -F= '/^POSTGRES_PASSWORD=/{print $2}' ../.env) \
+  DATABASE_URL="postgresql://ai_bed:${PGPW}@localhost:5434/ai_bed" \
+  ADMIN_PASSWORD='local-dev-password-123' npm run admin:create -- --username thang
 docker exec ai-bedtime-postgres-1 psql -U ai_bed -d ai_bed -c 'SELECT username FROM admin_users'
 ```
 
@@ -1159,6 +1168,18 @@ Then make the backend read-only, matching the `engine` service:
     tmpfs:
       - /tmp
 ```
+
+Also add `PORT` to the `backend` service's existing `environment:` block, alongside the `ENGINE_URL` and `DATABASE_URL` overrides that are already there for the same host-vs-in-network reason:
+
+```yaml
+      # BE/.env sets PORT=3007 for host development, but `expose`, nginx's
+      # upstream, and this service's own healthcheck all address the container
+      # on 3001. `environment` wins over `env_file`, so pin it here rather than
+      # asking every developer to keep the two in sync.
+      PORT: 3001
+```
+
+Without this the container listens on 3007, the healthcheck's `fetch('http://localhost:3001/health')` never succeeds, `backend` never reports healthy, and `frontend` — which has `depends_on: condition: service_healthy` — never starts at all. This is a pre-existing defect unrelated to SQLite, but Steps 6 and 7 and all of Task 11 cannot pass while it stands.
 
 **Do not touch the commented-out `networks:` blocks.**
 
@@ -1334,7 +1355,8 @@ Expected: 0 failed suites. Record the suite/test counts.
 
 ```bash
 cd /e/pet-project/AI-BEDTIME && docker compose up -d postgres
-cd BE && npm run migration:show
+cd BE && PGPW=$(awk -F= '/^POSTGRES_PASSWORD=/{print $2}' ../.env) \
+  DATABASE_URL="postgresql://ai_bed:${PGPW}@localhost:5434/ai_bed" npm run migration:show
 docker exec ai-bedtime-postgres-1 psql -U ai_bed -d ai_bed -c '\dt'
 ```
 
