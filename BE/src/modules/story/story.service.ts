@@ -22,7 +22,7 @@ export class StoryService {
   private readonly logger = new Logger(StoryService.name);
 
   constructor(
-    @InjectDataSource('local') private dataSource: DataSource,
+    @InjectDataSource('core') private dataSource: DataSource,
     private readonly childService: ChildService,
     private readonly memoryService: MemoryService,
     private readonly engineGateway: EngineGatewayService,

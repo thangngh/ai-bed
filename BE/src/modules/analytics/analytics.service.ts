@@ -45,16 +45,18 @@ export interface OverviewStats {
 @Injectable()
 export class AnalyticsService {
   constructor(
-    @InjectRepository(Story, 'local') private storyRepo: Repository<Story>,
+    @InjectRepository(Story, 'core') private storyRepo: Repository<Story>,
     @InjectRepository(Feedback, 'core') private feedbackRepo: Repository<Feedback>,
-    @InjectRepository(MemoryItem, 'local') private memoryRepo: Repository<MemoryItem>,
+    @InjectRepository(MemoryItem, 'core') private memoryRepo: Repository<MemoryItem>,
     private readonly childService: ChildService,
   ) {}
 
   async getStoryStats(childId: string, tenantId: string, days: number = 30): Promise<StoryStats> {
     const since = new Date();
     since.setDate(since.getDate() - days);
-    const sinceStr = since.toISOString().replace('T', ' ').replace('Z', ''); // SQLite format
+    // The *_at columns are text in the 'YYYY-MM-DD HH:MM:SS' UTC shape the
+    // migrations produce, so the comparison value has to match that format.
+    const sinceStr = since.toISOString().replace('T', ' ').replace('Z', '');
 
     const stories = await this.storyRepo.find({
       where: { tenantId, childId, createdAt: MoreThan(sinceStr) },

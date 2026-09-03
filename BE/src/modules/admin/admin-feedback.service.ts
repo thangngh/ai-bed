@@ -31,7 +31,6 @@ export class AdminFeedbackService {
 
   constructor(
     @InjectDataSource('core') private readonly core: DataSource,
-    @InjectDataSource('local') private readonly local: DataSource,
   ) {}
 
   async list(query: ListFeedbackDto): Promise<PaginatedResponse<AdminFeedbackItem>> {
@@ -45,9 +44,12 @@ export class AdminFeedbackService {
       skip: offset,
     });
 
-    // core.db and local.db are separate SQLite files, so the story title cannot
-    // be joined in SQL. Two extra lookups scoped to this page keep it at three
-    // queries total, not N+1.
+    // `core` and `local` were separate SQLite files; now that both live on the
+    // single `core` Postgres datasource a join is possible, but rewriting these
+    // lookups into one query is a deferred optimization (see
+    // docs/superpowers/specs/2026-09-03-drop-sqlite-design.md §3), not part of
+    // the datasource collapse. Two extra lookups scoped to this page keep it at
+    // three queries total, not N+1.
     const childNames = await this.lookupChildNames(rows);
     const storyTitles = await this.lookupStoryTitles(rows);
 
@@ -116,14 +118,14 @@ export class AdminFeedbackService {
     const ids = [...new Set(rows.map((r) => r.storyId).filter((id): id is string => !!id))];
     if (ids.length === 0) return new Map();
     try {
-      const stories = await this.local.getRepository(Story).find({
+      const stories = await this.core.getRepository(Story).find({
         where: { storyId: In(ids) },
         select: ['storyId', 'title'],
       });
       return new Map(stories.map((s) => [s.storyId, s.title]));
     } catch {
-      // The feedback itself lives in core.db. A broken local.db costs titles,
-      // not the whole page.
+      // A failed title lookup costs titles on this page, not the whole
+      // response — feedback rows still render without them.
       this.logger.warn(
         JSON.stringify({ event: 'admin_story_title_lookup_failed', count: ids.length }),
       );

@@ -13,7 +13,7 @@ export class MemoryService {
   private repo: Repository<MemoryItem>;
 
   constructor(
-    @InjectDataSource('local') private dataSource: DataSource,
+    @InjectDataSource('core') private dataSource: DataSource,
     private readonly configService: ConfigService,
   ) {
     this.repo = this.dataSource.getRepository(MemoryItem);
