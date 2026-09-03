@@ -73,9 +73,11 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
-    "testTimeout": 15000,
+    "testTimeout": 60000,
     "setupFiles": [
       "<rootDir>/test-setup.ts"
-    ]
+    ],
+    "globalSetup": "<rootDir>/common/__tests__/global-setup.ts",
+    "globalTeardown": "<rootDir>/common/__tests__/global-teardown.ts"
   }
 }
