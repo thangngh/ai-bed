@@ -570,7 +570,7 @@ export class DashboardService {
         'SUM(e.completionTokens) as completion_tokens',
         'SUM(e.estCostUsd) as est_cost_usd',
         'AVG(e.latencyMs) as avg_latency_ms',
-        'SUM(CASE WHEN e.isFallback = 1 THEN 1 ELSE 0 END) as fallback_calls',
+        'SUM(CASE WHEN e.isFallback THEN 1 ELSE 0 END) as fallback_calls',
       ])
       .where(where)
       .getRawMany();

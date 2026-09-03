@@ -10,15 +10,10 @@ import { IpState } from '../entities/ip-state.entity';
 import { Alert } from '../entities/alert.entity';
 import { AdminSetting } from '../entities/admin-setting.entity';
 import { ConfigService } from '@nestjs/config';
-import { makeDataSource } from '../../../../common/__tests__/test-db';
+import { openTestDataSource, closeTestDataSource } from '../../../../common/__tests__/test-db';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-
-const ALL_ENTITIES = [
-  TrafficEvent, TrafficHourly, LlmUsageEvent, LlmUsageHourly,
-  IpRule, IpState, Alert, AdminSetting,
-];
 
 function mockConfigService(): ConfigService {
   return {
@@ -43,8 +38,7 @@ describe('DashboardService', () => {
   let trafficHourlyRepo: Repository<TrafficHourly>;
 
   beforeEach(async () => {
-    ds = makeDataSource(ALL_ENTITIES);
-    await ds.initialize();
+    ds = await openTestDataSource();
     trafficEventRepo = ds.getRepository(TrafficEvent);
     trafficHourlyRepo = ds.getRepository(TrafficHourly);
     service = new DashboardService(
@@ -60,7 +54,7 @@ describe('DashboardService', () => {
     );
   });
 
-  afterEach(async () => { await ds.destroy(); });
+  afterEach(async () => { await closeTestDataSource(ds); });
 
   describe('trafficOverview', () => {
     beforeEach(async () => {
@@ -314,12 +308,11 @@ describe('DashboardService', () => {
       // directly instead of the callback's `manager` argument. Those repos run
       // on the default query runner, not the transaction's query runner, so a
       // mid-file failure would NOT roll back earlier writes in a pooled
-      // database (Postgres/MySQL). This cannot be observed by checking row
-      // counts after a simulated failure: TypeORM's sqlite driver holds a
-      // single physical connection, so even the buggy code appears to roll
-      // back correctly there (verified manually - see task-6-report.md).
-      // Spying on the outer repos' write methods is deterministic regardless
-      // of driver: after the fix, ingestTraffic must never call them.
+      // database (Postgres/MySQL) -- which this suite now runs on, so a
+      // regression here would show up as row-count leakage, not just a spy
+      // mismatch. Spying on the outer repos' write methods is deterministic
+      // regardless of driver: after the fix, ingestTraffic must never call
+      // them.
       const eventSaveSpy = jest.spyOn(trafficEventRepo, 'save');
       const hourlyFindSpy = jest.spyOn(trafficHourlyRepo, 'findOne');
       const hourlySaveSpy = jest.spyOn(trafficHourlyRepo, 'save');
