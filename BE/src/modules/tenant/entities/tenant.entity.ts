@@ -11,8 +11,13 @@ export class Tenant {
   @Column({ name: 'auth_type', type: 'text', default: 'local' })
   authType!: string;
 
+  /** Provider-side stable subject id. Null for anonymous MVP tenants. */
   @Column({ name: 'auth_key', type: 'text', nullable: true })
-  authKey?: string;
+  authKey?: string | null;
+
+  /** Display and support lookups only -- identity is matched on auth_key. */
+  @Column({ name: 'email', type: 'text', nullable: true })
+  email?: string | null;
 
   @Column({ name: 'metadata', type: 'text', nullable: true })
   metadata?: string;

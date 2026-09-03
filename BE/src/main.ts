@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ValidationPipe } from './common/pipes/validation.pipe';
@@ -33,6 +34,10 @@ function corsOrigins(): string[] {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // The parent refresh token lives in an httpOnly cookie; without this the
+  // /auth/refresh handler sees no cookies at all.
+  app.use(cookieParser());
+
   const origins = corsOrigins();
   if (origins.length > 0) {
     app.enableCors({
@@ -41,6 +46,8 @@ async function bootstrap() {
       // methods and headers are enumerated rather than reflected.
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id', 'X-Story-Heartbeat'],
+      // The refresh cookie only travels on a credentialed request.
+      credentials: true,
       maxAge: 600,
     });
     console.log(`CORS enabled for: ${origins.join(', ')}`);

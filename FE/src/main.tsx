@@ -2,6 +2,7 @@ import {StrictMode, Suspense, lazy} from 'react';
 import {createRoot} from 'react-dom/client';
 import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import App from './App.tsx';
+import { AuthCallbackScreen } from './components/AuthCallbackScreen';
 import './index.css';
 
 // Lazy so the parent-facing app never downloads the admin console.
@@ -13,6 +14,9 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<App />} />
+        {/* Not lazy: it runs on the redirect back from Google and must read
+            the URL fragment before anything else can clear it. */}
+        <Route path="/auth/callback" element={<AuthCallbackScreen />} />
         <Route
           path="/support"
           element={
