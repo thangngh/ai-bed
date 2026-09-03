@@ -491,8 +491,10 @@ Expected: PASS, all 3 tests.
 Run: `cd BE && grep -rn "'local'" src --include=*.ts`
 Expected: no output. (If a spec file still matches, it belongs to Tasks 3-5 — note it and continue; the app code must be clean.)
 
-Run: `cd BE && npm run lint`
+Run: `cd BE && npx tsc --noEmit -p tsconfig.build.json`
 Expected: no TypeScript errors.
+
+`tsconfig.build.json` is used here, not `npm run lint`. Task 1 deleted `LOCAL_TOKEN`, `makeDataSource`, `openTestDataSources`, and `closeTestDataSources`, and the 11 spec files that still call them are not migrated until Tasks 3-5. `npm run lint` uses `tsconfig.json`, which type-checks `src/**/*` including spec files, so it cannot be clean until Task 5. `tsconfig.build.json` excludes `**/*spec.ts`, so it gates exactly what this task owns: the application code. Full `npm run lint` returns as a gate in Task 6.
 
 - [ ] **Step 8: Verify the app actually boots against real Postgres**
 
@@ -609,9 +611,15 @@ with a single `{ provide: getDataSourceToken('core'), useValue: dataSource }`, a
 
 - [ ] **Step 4: Run the six files together**
 
-Run:
+Run (explicit file paths only — passing a directory would pull in `tenant.controller.spec.ts`, `story.integration.spec.ts`, and `story.flow.spec.ts`, which Tasks 4 and 5 have not migrated yet and which are expected to fail until then):
 ```bash
-cd BE && npx jest src/modules/tenant src/modules/child/__tests__/child.service.spec.ts src/modules/feedback src/modules/memory src/modules/story/__tests__/story.service.spec.ts src/modules/analytics -v
+cd BE && npx jest \
+  src/modules/tenant/__tests__/tenant.service.spec.ts \
+  src/modules/child/__tests__/child.service.spec.ts \
+  src/modules/feedback/__tests__/feedback.service.spec.ts \
+  src/modules/memory/__tests__/memory.service.spec.ts \
+  src/modules/story/__tests__/story.service.spec.ts \
+  src/modules/analytics/__tests__/analytics.service.spec.ts -v
 ```
 
 Expected: PASS. **If assertions fail rather than the setup failing, that is the dialect fallout the spec warned about** — Postgres is stricter than SQLite. Fix each one on its merits; the common causes are:
@@ -778,7 +786,7 @@ git commit -m "test: move integration specs onto the single Postgres datasource"
 - Modify: `BE/src/database/migrations/1756166400002-CreateDashboardTables.ts`
 - Modify: `BE/src/database/migrations/1756166400003-CreateLocalTables.ts`
 - Modify: `BE/src/database/migrations/1756166400004-AddTenantAuth.ts`
-- Modify: 12 entity files (list below)
+- Modify: 11 entity files, 13 occurrences (exact list below)
 - Test: `BE/src/common/__tests__/test-db.spec.ts` (the created_at-format test from Task 1 already covers this)
 
 **Interfaces:**
@@ -821,7 +829,7 @@ Apply the same two-line change to `...002`, `...003`, and `...004`. Do not touch
 
 - [ ] **Step 3: Update the 12 entity files**
 
-Replace every `default: () => "datetime('now')"` with `default: () => NOW_UTC_TEXT_EXPR`, adding the import to each file. The 14 occurrences live in:
+Replace every `default: () => "datetime('now')"` with `default: () => NOW_UTC_TEXT_EXPR`, adding the import to each file. There are exactly 13 occurrences across 11 files:
 
 | File | Columns |
 |---|---|

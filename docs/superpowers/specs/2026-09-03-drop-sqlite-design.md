@@ -31,7 +31,7 @@ State found on 2026-09-03, on this branch:
 - **The dev Postgres database is empty.** The `postgres:16-alpine` container is
   up and healthy, but `\dt` reports "Did not find any relations" — migrations
   have never been run against it.
-- 14 entity columns still declare `default: () => "datetime('now')"`, a SQLite
+- 13 entity columns (across 11 files) still declare `default: () => "datetime('now')"`, a SQLite
   function. Harmless today only because `synchronize` is `false` everywhere
   (TypeORM omits undefined columns on insert and the migration-created DB-side
   default applies). It becomes a live bug the moment anyone enables
@@ -91,7 +91,7 @@ the same change that rewrites the whole test harness.
 | `BE/src/modules/memory/memory.module.ts` | `forFeature([MemoryItem], 'local')` → `'core'` |
 | `BE/src/modules/analytics/analytics.module.ts` | Three `forFeature` calls collapse to one on `'core'`; `analytics.service.ts` drops its second-datasource references |
 | `BE/src/database/now-default-expr.ts` | Drop the SQLite branch; export a constant `NOW_UTC_TEXT_EXPR`. The Postgres expression is unchanged, so a fresh DB gets a byte-identical schema and environments where the migrations already ran stay compatible. |
-| 14 entity columns | `default: () => "datetime('now')"` → the shared constant above |
+| 13 entity columns (11 files) | `default: () => "datetime('now')"` → the shared constant above |
 | `BE/src/config/app.config.ts` | Delete `coreDbPath` and `localDbPath` |
 | New migration `...005-DropStorageBackend` | Drop `tenants.storage_backend` and `tenants.migrated_at` |
 
@@ -111,7 +111,7 @@ does not conclude the code is dead.
 | `migrate-core-to-postgres.ts` | Delete — one-shot, no longer migrating anything |
 | `check-core-orphans.ts` | Delete — only meaningful before a SQLite→PG copy |
 | `create-admin.ts` | Rewrite against `DATABASE_URL`; still needed to recreate the admin user |
-| `create-tenants.ts` | Rewrite against `DATABASE_URL`; dev seed |
+| `create-tenants.ts` | Delete — all it did was `CREATE TABLE IF NOT EXISTS tenants`, which the migrations now own; it seeds nothing, so a Postgres port would be dead code |
 
 `package.json` then drops `sqlite3` from `dependencies` and drops the
 `db:init`, `migrate:core`, and `check:core-orphans` scripts.
@@ -124,7 +124,7 @@ Shared infrastructure, using one container and a template database:
   into a database named `tpl`, closes every connection to `tpl` (Postgres
   refuses `CREATE DATABASE ... TEMPLATE` while any session is attached), and
   publishes the connection URI for the workers.
-- **`makeTestDataSource()`** issues `CREATE DATABASE test_<random> TEMPLATE
+- **`openTestDataSource()`** issues `CREATE DATABASE test_<random> TEMPLATE
   tpl` — Postgres copies the files, so this is near-instant and pays the
   migration cost only once — and returns a `DataSource` pointed at it.
   Teardown `destroy()`s and drops the database.
