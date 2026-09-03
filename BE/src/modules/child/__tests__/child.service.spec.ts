@@ -3,37 +3,35 @@ import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ChildService } from '../child.service';
-import { ChildProfile } from '../entities/child-profile.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 describe('ChildService', () => {
   let service: ChildService;
   let dataSource: DataSource;
 
   beforeAll(async () => {
+    dataSource = await openTestDataSource();
+    // child_profiles.tenant_id carries a real FK to tenants on Postgres (the
+    // old SQLite fixture only ever loaded the ChildProfile entity, so this
+    // constraint was never in play). Every tenant id this file's tests
+    // invent has to exist first.
+    await dataSource.manager.save(
+      Tenant,
+      ['tenant-1', 'tenant-2', 'tenant-3', 'tenant-4', 'tenant-5', 'tenant-order', 'tenant-ambiguous']
+        .map((tenantId) => ({ tenantId })),
+    );
     const module = await Test.createTestingModule({
       providers: [
         ChildService,
-        {
-          provide: getDataSourceToken('core'),
-          useFactory: async () => {
-            const ds = new DataSource({
-              type: 'sqlite',
-              database: ':memory:',
-              entities: [ChildProfile],
-              synchronize: true,
-            });
-            await ds.initialize();
-            return ds;
-          },
-        },
+        { provide: getDataSourceToken('core'), useValue: dataSource },
       ],
     }).compile();
     service = module.get(ChildService);
-    dataSource = module.get(getDataSourceToken('core'));
   });
 
   afterAll(async () => {
-    await dataSource.destroy();
+    await closeTestDataSource(dataSource);
   });
 
   it('should create profile', async () => {

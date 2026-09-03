@@ -4,28 +4,18 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MemoryService } from '../memory.service';
 import { MemoryItem } from '../entities/memory-item.entity';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 describe('MemoryService', () => {
   let service: MemoryService;
   let dataSource: DataSource;
 
   beforeAll(async () => {
+    dataSource = await openTestDataSource();
     const module = await Test.createTestingModule({
       providers: [
         MemoryService,
-        {
-          provide: getDataSourceToken('local'),
-          useFactory: async () => {
-            const ds = new DataSource({
-              type: 'sqlite',
-              database: ':memory:',
-              entities: [MemoryItem],
-              synchronize: true,
-            });
-            await ds.initialize();
-            return ds;
-          },
-        },
+        { provide: getDataSourceToken('core'), useValue: dataSource },
         {
           provide: ConfigService,
           useValue: {
@@ -42,11 +32,10 @@ describe('MemoryService', () => {
       ],
     }).compile();
     service = module.get(MemoryService);
-    dataSource = module.get(getDataSourceToken('local'));
   });
 
   afterAll(async () => {
-    await dataSource.destroy();
+    await closeTestDataSource(dataSource);
   });
 
   it('should bulk create memories', async () => {
@@ -172,8 +161,10 @@ describe('MemoryService', () => {
   it('getChildContext orders by confidence descending', async () => {
     const repo = dataSource.getRepository(MemoryItem);
     await repo.save([
-      { memoryId: 'ord1', tenantId: 't-ord', childId: 'c-ord', memoryType: 'interest', memoryKey: 'k', memoryValue: 'thấp', confidence: 0.3, isActive: 1, lastReinforcedAt: new Date().toISOString() },
-      { memoryId: 'ord2', tenantId: 't-ord', childId: 'c-ord', memoryType: 'interest', memoryKey: 'k', memoryValue: 'cao', confidence: 0.9, isActive: 1, lastReinforcedAt: new Date().toISOString() },
+      // *_at text columns store 'YYYY-MM-DD HH:MM:SS' (see now-default-expr.ts) --
+      // seed data has to match that shape rather than a raw ISO string.
+      { memoryId: 'ord1', tenantId: 't-ord', childId: 'c-ord', memoryType: 'interest', memoryKey: 'k', memoryValue: 'thấp', confidence: 0.3, isActive: 1, lastReinforcedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) },
+      { memoryId: 'ord2', tenantId: 't-ord', childId: 'c-ord', memoryType: 'interest', memoryKey: 'k', memoryValue: 'cao', confidence: 0.9, isActive: 1, lastReinforcedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) },
     ]);
 
     const ctx = await service.getChildContext('c-ord', 't-ord');

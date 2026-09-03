@@ -5,6 +5,9 @@ import { FeedbackService } from '../feedback.service';
 import { Feedback } from '../entities/feedback.entity';
 import { ChildService } from '../../child/child.service';
 import { MemoryService } from '../../memory/memory.service';
+import { Tenant } from '../../tenant/entities/tenant.entity';
+import { ChildProfile } from '../../child/entities/child-profile.entity';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 describe('FeedbackService', () => {
   let service: FeedbackService;
@@ -13,22 +16,26 @@ describe('FeedbackService', () => {
   let memoryService: jest.Mocked<MemoryService>;
 
   beforeAll(async () => {
+    dataSource = await openTestDataSource();
+    // feedbacks.tenant_id and feedbacks.child_id both carry real FKs on
+    // Postgres. ChildService is mocked here, so nothing else creates the
+    // rows these tests' fake ids point at -- seed them directly so the
+    // FK the old fragmentary SQLite fixture never enforced is satisfied.
+    await dataSource.manager.save(Tenant, { tenantId: 'tenant-1' });
+    await dataSource.manager.save(
+      ChildProfile,
+      [
+        'child-uuid-1',
+        'child-uuid-2',
+        'child-uuid-3',
+        'child-uuid-4',
+        '12345678-1234-4123-8123-123456789abc',
+      ].map((childId) => ({ childId, tenantId: 'tenant-1', childName: childId, age: 5 })),
+    );
     const module = await Test.createTestingModule({
       providers: [
         FeedbackService,
-        {
-          provide: getDataSourceToken('core'),
-          useFactory: async () => {
-            const ds = new DataSource({
-              type: 'sqlite',
-              database: ':memory:',
-              entities: [Feedback],
-              synchronize: true,
-            });
-            await ds.initialize();
-            return ds;
-          },
-        },
+        { provide: getDataSourceToken('core'), useValue: dataSource },
         {
           provide: ChildService,
           useValue: {
@@ -46,13 +53,12 @@ describe('FeedbackService', () => {
     }).compile();
 
     service = module.get(FeedbackService);
-    dataSource = module.get(getDataSourceToken('core'));
     childService = module.get(ChildService) as jest.Mocked<ChildService>;
     memoryService = module.get(MemoryService) as jest.Mocked<MemoryService>;
   });
 
   afterAll(async () => {
-    await dataSource.destroy();
+    await closeTestDataSource(dataSource);
   });
 
   beforeEach(() => {

@@ -2,37 +2,25 @@ import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { TenantService } from '../tenant.service';
-import { Tenant } from '../entities/tenant.entity';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 describe('TenantService', () => {
   let service: TenantService;
   let dataSource: DataSource;
 
   beforeAll(async () => {
+    dataSource = await openTestDataSource();
     const module = await Test.createTestingModule({
       providers: [
         TenantService,
-        {
-          provide: getDataSourceToken('core'),
-          useFactory: async () => {
-            const ds = new DataSource({
-              type: 'sqlite',
-              database: ':memory:',
-              entities: [Tenant],
-              synchronize: true,
-            });
-            await ds.initialize();
-            return ds;
-          },
-        },
+        { provide: getDataSourceToken('core'), useValue: dataSource },
       ],
     }).compile();
     service = module.get(TenantService);
-    dataSource = module.get(getDataSourceToken('core'));
   });
 
   afterAll(async () => {
-    await dataSource.destroy();
+    await closeTestDataSource(dataSource);
   });
 
   it('should create a tenant with UUID', async () => {
