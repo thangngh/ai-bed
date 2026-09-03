@@ -12,7 +12,15 @@ import { ALL_TEST_ENTITIES, TEMPLATE_DB } from './test-entities';
  * process) is stashed there.
  */
 export default async function globalSetup(): Promise<void> {
-  const container = await new PostgreSqlContainer('postgres:16-alpine').start();
+  // Every spec file will eventually open its own pooled DataSource (see
+  // test-db.ts's `extra: { max: 4 }`) against this one container, and Jest
+  // runs multiple spec files in parallel workers. Postgres's stock
+  // max_connections=100 is comfortably exceeded once enough suites are on
+  // the harness, so raise the server's own limit rather than throttling
+  // Jest's worker count.
+  const container = await new PostgreSqlContainer('postgres:16-alpine')
+    .withCommand(['postgres', '-c', 'max_connections=200'])
+    .start();
 
   // The admin URL targets the always-present `postgres` maintenance database.
   // CREATE DATABASE and DROP DATABASE cannot run from inside the database

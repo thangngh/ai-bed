@@ -50,11 +50,19 @@ export async function openTestDataSource(): Promise<DataSource> {
     database: dbName,
     entities: ALL_TEST_ENTITIES,
     synchronize: false,
-    // The container's max_connections (100) is shared by every parallel
-    // worker, and each worker holds its own pool.
+    // Headroom for many parallel workers each holding a pool comes from
+    // raising the container's own max_connections (see global-setup.ts),
+    // not from shrinking this per-worker pool.
     extra: { max: 4 },
   });
-  await ds.initialize();
+  try {
+    await ds.initialize();
+  } catch (err) {
+    // Don't leak the database just created above if the connection that
+    // was supposed to use it never came up.
+    await withAdmin((c) => c.query(`DROP DATABASE IF EXISTS "${dbName}"`));
+    throw err;
+  }
   return ds;
 }
 
