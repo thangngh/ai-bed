@@ -18,6 +18,13 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  */
 export const STORY_TIMEOUT_MS = 240_000;
 
+import {
+  getAccessToken,
+  getStoredTenantId,
+  refreshAccessToken,
+  restoreSession,
+} from './authSession';
+
 export class ApiError extends Error {
   constructor(
     /** Machine-readable code: the BE's `error.code`, or a client-side one. */
@@ -41,7 +48,16 @@ export interface ApiOptions extends RequestInit {
   timeoutMs?: number;
 }
 
-async function ensureTenantId(): Promise<string> {
+async function ensureTenantId(): Promise<string | null> {
+  // A signed-in parent's tenant comes from the token the BE verifies, so there
+  // is nothing to bootstrap and nothing worth asserting in a header.
+  if (getAccessToken()) return getStoredTenantId();
+
+  // A reload drops the in-memory token; trade the refresh cookie back for one
+  // before falling through to the anonymous path, or signing in would silently
+  // downgrade to a fresh empty tenant on every refresh of the page.
+  if (await restoreSession()) return getStoredTenantId();
+
   const stored = localStorage.getItem('bsc_tenant_id');
   if (stored) return stored;
 
@@ -75,30 +91,52 @@ export async function apiClient<T = any>(
   const tenantId = await ensureTenantId();
   const { timeoutMs = DEFAULT_TIMEOUT_MS, ...init } = options;
 
-  const controller = init.signal ? null : new AbortController();
-  const timer = controller
-    ? setTimeout(() => controller.abort(), timeoutMs)
-    : undefined;
+  const send = async (): Promise<Response> => {
+    const controller = init.signal ? null : new AbortController();
+    const timer = controller
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : undefined;
+
+    const accessToken = getAccessToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      // Only sent when there is no token. The BE ignores it for authenticated
+      // requests, but sending both would suggest the header still decides
+      // something -- it does not.
+      ...(!accessToken && tenantId ? { 'X-Tenant-Id': tenantId } : {}),
+      ...(init.headers as Record<string, string> | undefined),
+    };
+
+    try {
+      return await fetch(`${API_BASE}${path}`, {
+        ...init,
+        signal: init.signal ?? controller?.signal,
+        credentials: 'include',
+        headers,
+      });
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      signal: init.signal ?? controller?.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Tenant-Id': tenantId,
-        ...init.headers,
-      },
-    });
+    res = await send();
+
+    // An access token lives ~15 minutes, so an expired one is the ordinary
+    // case, not an error. Refresh once and replay; a second 401 is a real
+    // logout and falls through to the error path below.
+    if (res.status === 401 && getAccessToken()) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) res = await send();
+    }
   } catch (err: any) {
     // fetch only rejects for transport-level failures: aborts and offline.
     if (err?.name === 'AbortError') {
       throw new ApiError('TIMEOUT', `Quá thời gian chờ (${Math.round(timeoutMs / 1000)}s)`);
     }
     throw new ApiError('NETWORK_ERROR', 'Không kết nối được máy chủ');
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
   }
 
   if (!res.ok) {

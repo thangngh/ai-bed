@@ -2,6 +2,7 @@ import React from 'react';
 import { Moon, Sun, BookOpen, Sparkles, Heart, BarChart3, Users } from 'lucide-react';
 import { AppScreen, ChildProfile } from '../types';
 import { getAvatarColor, getInitial } from '../utils/avatar';
+import { AccountButton } from './AccountButton';
 
 interface HeaderProps {
   currentScreen: AppScreen;
@@ -152,6 +153,9 @@ export const Header: React.FC<HeaderProps> = ({
             <Heart className="w-4 h-4 fill-rose-400/30 text-rose-500" />
             <span className="hidden md:inline">Ủng hộ</span>
           </button>
+
+          {/* Account -- reads the session itself, so no prop threading. */}
+          <AccountButton isNightMode={isNightMode} />
 
           {/* Night Mode Toggle */}
           <button

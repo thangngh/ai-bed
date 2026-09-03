@@ -4,6 +4,7 @@ import { Tenant } from '../../modules/tenant/entities/tenant.entity';
 import { ChildProfile } from '../../modules/child/entities/child-profile.entity';
 import { Feedback } from '../../modules/feedback/entities/feedback.entity';
 import { AdminUser } from '../../modules/admin/entities/admin-user.entity';
+import { TenantSession } from '../../modules/auth/entities/tenant-session.entity';
 import { Story } from '../../modules/story/entities/story.entity';
 import { StorySection } from '../../modules/story/entities/story-section.entity';
 import { MemoryItem } from '../../modules/memory/entities/memory-item.entity';
@@ -23,6 +24,7 @@ const EXPECTED_TABLES = [
   'traffic_event', 'traffic_hourly', 'llm_usage_event', 'llm_usage_hourly',
   'ip_rules', 'ip_states', 'alerts', 'admin_settings',
   'stories', 'story_sections', 'memory_items',
+  'tenant_sessions',
 ];
 
 describe('Postgres migrations', () => {
@@ -35,7 +37,7 @@ describe('Postgres migrations', () => {
       type: 'postgres',
       url: container.getConnectionUri(),
       entities: [
-        Tenant, ChildProfile, Feedback, AdminUser,
+        Tenant, ChildProfile, Feedback, AdminUser, TenantSession,
         TrafficEvent, TrafficHourly, LlmUsageEvent, LlmUsageHourly,
         IpRule, IpState, Alert, AdminSetting,
         Story, StorySection, MemoryItem,
@@ -51,7 +53,7 @@ describe('Postgres migrations', () => {
     await container.stop();
   });
 
-  it('creates all 15 tables', async () => {
+  it('creates all 16 tables', async () => {
     await dataSource.runMigrations();
 
     const rows: { table_name: string }[] = await dataSource.query(
@@ -72,7 +74,9 @@ describe('Postgres migrations', () => {
     `);
     const tablesWithFks = rows.map((r) => r.table_name).sort();
 
-    expect(tablesWithFks).toEqual(['child_profiles', 'feedbacks', 'feedbacks', 'story_sections'].sort());
+    expect(tablesWithFks).toEqual(
+      ['child_profiles', 'feedbacks', 'feedbacks', 'story_sections', 'tenant_sessions'].sort(),
+    );
   });
 
   it('reverts all migrations cleanly', async () => {

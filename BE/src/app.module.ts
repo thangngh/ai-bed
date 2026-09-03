@@ -15,6 +15,8 @@ import { MemoryModule } from './modules/memory/memory.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { EngineGatewayModule } from './modules/engine-gateway/engine-gateway.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { TenantSession } from './modules/auth/entities/tenant-session.entity';
 import { AdminUser } from './modules/admin/entities/admin-user.entity';
 import {
   TrafficEvent,
@@ -27,6 +29,7 @@ import {
   AdminSetting,
 } from './modules/admin/dashboard/entities';
 import adminConfig from './modules/admin/admin.config';
+import parentAuthConfig from './modules/auth/auth.config';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middleware';
 import { HealthController } from './common/health.controller';
@@ -42,7 +45,7 @@ import rateLimitConfig from './config/rate-limit.config';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-      load: [appConfig, memoryConfig, rateLimitConfig, adminConfig],
+      load: [appConfig, memoryConfig, rateLimitConfig, adminConfig, parentAuthConfig],
     }),
     TenantModule,
     ChildModule,
@@ -52,12 +55,13 @@ import rateLimitConfig from './config/rate-limit.config';
     AnalyticsModule,
     EngineGatewayModule,
     AdminModule,
+    AuthModule,
     TypeOrmModule.forRootAsync({
       name: 'core',
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get('DATABASE_URL'),
-        entities: [Tenant, ChildProfile, Feedback, AdminUser,
+        entities: [Tenant, ChildProfile, Feedback, AdminUser, TenantSession,
           TrafficEvent, TrafficHourly, LlmUsageEvent, LlmUsageHourly,
           IpRule, IpState, Alert, AdminSetting],
         synchronize: false,
@@ -83,7 +87,9 @@ export class AppModule implements NestModule {
       .apply(TenantMiddleware, RateLimiterMiddleware)
       // /admin has no tenant. Without this the middleware would create one
       // anonymous tenant row per admin request.
-      .exclude('health', 'admin/(.*)')
+            // /auth is pre-login: without the exclusion every redirect through the
+      // OAuth flow would mint a throwaway anonymous tenant row.
+      .exclude('health', 'admin/(.*)', 'auth/(.*)')
       .forRoutes('*');
   }
 }
