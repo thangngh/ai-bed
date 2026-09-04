@@ -93,6 +93,11 @@ services:
     build:
       context: ./BE
       dockerfile: Dockerfile
+    # Do not `--scale backend=2` (or otherwise run more than one replica) as
+    # this stands: the backend runs its TypeORM migrations at boot
+    # (`migrationsRun: true` in BE/src/app.module.ts) with no advisory lock
+    # around it, so two replicas starting together would race the same
+    # migration.
     # No `ports` either: nginx proxies /api/ to `backend:3001` inside the
     # network, and that hop is where the per-IP rate limit is applied. A
     # published 3001 skipped it.

@@ -19,10 +19,9 @@ import {
   AdminSetting,
 } from '../modules/admin/dashboard/entities';
 
-// Covers all 15 tables (core + dashboard + local) even though, until the
-// follow-up plan lands, only the core+dashboard 12 are actually read/written
-// via Postgres at runtime — the `local` tables' schema needs to exist ahead
-// of their own per-tenant data cutover (spec §4 Phase 0).
+// Entry point for the migration CLI (`migration:run` / `migration:revert` /
+// `migration:show` in package.json). The entity list mirrors app.module.ts's
+// `core` TypeOrmModule.forRoot() registration.
 const PostgresDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,

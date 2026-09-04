@@ -219,8 +219,8 @@ export class StoryService {
   }
 
   /**
-   * Full story for re-reading. The child's name and age live in the other
-   * datasource, so they are resolved here rather than read off the story row.
+   * Full story for re-reading. The child's name and age live on
+   * `child_profiles`, so they are resolved here rather than read off the story row.
    */
   async getDetail(storyId: string, tenantId: string) {
     const story = await this.findById(storyId, tenantId);
