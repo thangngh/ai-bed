@@ -5,11 +5,6 @@ node_modules
 dist
 coverage
 
-# Runtime SQLite lives in the be-data volume; baking a developer's database
-# into the image would seed every deployment with their tenants and stories.
-data/*.db
-data/*.db-journal
-
 # Secrets are supplied at run time via compose `env_file` / `environment`.
 .env
 .env.*

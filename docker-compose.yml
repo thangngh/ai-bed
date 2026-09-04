@@ -116,6 +116,11 @@ services:
       # `ports:` entry above); inside the compose network the core datasource
       # reaches Postgres by service name.
       DATABASE_URL: postgresql://ai_bed:${POSTGRES_PASSWORD}@postgres:5432/ai_bed
+      # BE/.env sets PORT=3007 for host development, but `expose`, nginx's
+      # upstream, and this service's own healthcheck all address the container
+      # on 3001. `environment` wins over `env_file`, so pin it here rather than
+      # asking every developer to keep the two in sync.
+      PORT: 3001
     depends_on:
       engine:
         condition: service_healthy
@@ -124,12 +129,14 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    # Not read_only: SQLite needs to write its database and its -wal/-shm
-    # sidecars into the mounted volume.
+    # Nothing under /app is written at runtime now that the schema comes from
+    # migrations and the data lives in Postgres; /tmp is the one path a Node
+    # process still needs.
+    read_only: true
+    tmpfs:
+      - /tmp
     mem_limit: 512m
     cpus: 1.0
-    volumes:
-      - be-data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -173,7 +180,6 @@ services:
       start_period: 10s
 
 volumes:
-  be-data:
   pg-data:
 
 networks:
