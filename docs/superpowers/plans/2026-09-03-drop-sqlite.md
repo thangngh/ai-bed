@@ -1065,12 +1065,18 @@ export default registerAs('app', () => ({
 
 - [ ] **Step 5: Reinstall and verify the dependency is gone**
 
+`package-lock.json` **must** be resynced, not left stale: `npm ci` — which the Dockerfile runs, and which Task 9 Step 5 exercises — fails outright when `package.json` and the lockfile disagree. Removing `sqlite3` from `dependencies` without updating the lockfile would break the image build.
+
+Use `--package-lock-only`, which rewrites the lockfile without touching `node_modules`:
+
 ```bash
-cd BE && npm install
-grep -rn "sqlite" package.json package-lock.json | head
+cd BE && npm install --package-lock-only
+grep -n "sqlite" package.json; grep -c "sqlite3" package-lock.json
 ```
 
-Expected: `package.json` has no `sqlite` match. `package-lock.json` may keep transitive matches only if something else depends on it — if `sqlite3` still appears as a direct entry, `npm install` did not pick up the change.
+`node_modules` here is a pnpm layout that the whole test suite is currently running against; a plain `npm install` would replace it wholesale, which is both slow and outside this plan's scope (the npm/pnpm split is an explicit non-goal). `--package-lock-only` keeps the working install untouched while making the lockfile honest.
+
+Expected: no `sqlite` match in `package.json`; `package-lock.json`'s `sqlite3` count drops to 0. If `sqlite3` survives as a direct entry, the lockfile did not pick up the change.
 
 - [ ] **Step 6: Verify `admin:create` works against Postgres**
 
