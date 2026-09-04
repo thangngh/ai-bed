@@ -1,6 +1,6 @@
-# node_modules is rebuilt inside the image. Shipping the host copy would put
-# Windows-built binaries (sqlite3 is native) on top of the Linux ones that
-# `npm ci` just produced, and the container would fail to start.
+# node_modules is rebuilt inside the image. Shipping the host copy would be
+# the wrong platform's dependency tree shadowing the one `npm ci` just
+# produced inside the container, and the container would fail to start.
 node_modules
 dist
 coverage
