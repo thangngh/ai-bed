@@ -1282,6 +1282,34 @@ Note: `docker-compose.yml` also carries the unrelated commented-out `networks:` 
 - Consumes: the finished state from Tasks 1-9.
 - Produces: nothing consumed by code.
 
+- [ ] **Step 0: Correct four in-code references that are now false**
+
+These are not documentation, but they are the same defect as the docs below: text that asserts something untrue about how the system stores data. Two of them state a falsehood outright; two are stale naming.
+
+`BE/src/modules/admin/admin-feedback.service.ts:88` — currently says "SQLite stores UTC". Postgres stores it now, in the same text shape:
+
+```typescript
+    // The UI date inputs are Vietnam calendar dates; the *_at columns are UTC
+    // text. Shift the boundaries so a day filter means a Vietnam day.
+```
+
+`BE/src/modules/child/child.service.ts:85` — currently says "whatever SQLite hands back":
+
+```typescript
+    // Without an explicit order the list is whatever Postgres hands back, so the
+```
+
+`BE/src/common/time/vietnam-time.ts:6-7` — the local variable is named `sqliteUtc` after a database that is gone. Rename it to `utcTextShape`; the regex and the behavior do not change:
+
+```typescript
+  const utcTextShape = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(trimmed);
+  return new Date(utcTextShape ? `${trimmed.replace(' ', 'T')}Z` : trimmed);
+```
+
+`BE/src/common/__tests__/test-db.spec.ts:43` — the test name says "in the SQLite text shape". Rename it to `'applies the Postgres-side created_at default in the expected text shape'`. Do not change the assertion.
+
+Run `cd BE && npx jest src/common/__tests__/vietnam-time.spec.ts src/common/__tests__/test-db.spec.ts --verbose` afterwards; both must still pass.
+
 - [ ] **Step 1: Fix the README**
 
 - Line 39, the ASCII architecture diagram: `│  SQLite  │` → `│ Postgres │` (keep the box width).
@@ -1339,13 +1367,18 @@ cd /e/pet-project/AI-BEDTIME/BE
 grep -rn -i "sqlite" src scripts package.json Dockerfile .env.example .dockerignore .gitignore
 ```
 
-Expected: exactly three deliberate hits, all in `src/database/migrations/`, and nothing else:
+Expected: only the hits on this allowlist, and nothing else. Every one of them is a deliberate reference to what SQLite *used to* do, in a comment or a schema literal that must not change:
 
-1. `1756166400001-CreateCoreTables.ts` — the `default: `'sqlite'`` on `storage_backend`, which must stay so the recorded migration history replays from scratch.
-2. the comment above it, added in Task 7 Step 4, explaining why.
-3. `1756166400005-DropStorageBackend.ts` — the same default inside `down()`, plus its doc comment.
+| Location | Why it stays |
+|---|---|
+| `src/database/migrations/1756166400001-CreateCoreTables.ts:25` | the `default: `'sqlite'`` on `storage_backend` — must stay so the recorded migration history replays from scratch |
+| same file, the comment above it (Task 7 Step 4) | explains the line above |
+| `src/database/migrations/1756166400005-DropStorageBackend.ts:5-6,20` | the doc comment and the same default restored in `down()` |
+| `src/database/now-default-expr.ts:3` | doc comment naming the format's origin |
+| `src/modules/admin/admin-feedback.service.ts:47,50` | explains why the two-query title lookup exists and points at the spec section that defers merging it |
+| `src/common/__tests__/admin-feedback.service.spec.ts:72`, `analytics.service.spec.ts:153`, `child.service.spec.ts:16`, `feedback.service.spec.ts:23` | explain why FK parent rows are seeded — the old fixtures did not enforce them |
 
-Any hit outside `src/database/migrations/` is a leftover.
+Anything not on this list is a leftover. Note that Task 10 Step 0 removes four *stale* references that are not on it.
 
 - [ ] **Step 2: TypeScript clean**
 
