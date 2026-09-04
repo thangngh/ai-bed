@@ -92,4 +92,15 @@ describe('Postgres migrations', () => {
     // Restore schema so a re-run of this file (e.g. --watch) starts clean.
     await dataSource.runMigrations();
   });
+
+  it('leaves no dual-write control columns on tenants', async () => {
+    const rows: { column_name: string }[] = await dataSource.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'tenants'`,
+    );
+    const columns = rows.map((r) => r.column_name);
+
+    expect(columns).not.toContain('storage_backend');
+    expect(columns).not.toContain('migrated_at');
+  });
 });

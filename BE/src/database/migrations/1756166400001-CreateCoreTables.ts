@@ -18,9 +18,10 @@ export class CreateCoreTables1756166400001 implements MigrationInterface {
           { name: 'metadata', type: 'text', isNullable: true },
           { name: 'created_at', type: 'text', default: now },
           { name: 'updated_at', type: 'text', default: now },
-          // Cutover control column for the `local` tables (stories,
-          // story_sections, memory_items) — set and consumed by the
-          // follow-up dual-write plan, unused until then.
+          // Cutover control columns for the abandoned per-tenant dual-write
+          // plan. Never read by application code; dropped again in
+          // DropStorageBackend1756166400005. Kept here so the recorded
+          // migration history stays replayable from scratch.
           { name: 'storage_backend', type: 'text', default: `'sqlite'` },
           { name: 'migrated_at', type: 'text', isNullable: true },
         ],
