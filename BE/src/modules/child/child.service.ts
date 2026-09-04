@@ -82,7 +82,7 @@ export class ChildService {
   }
 
   async findByTenant(tenantId: string): Promise<ChildProfile[]> {
-    // Without an explicit order the list is whatever SQLite hands back, so the
+    // Without an explicit order the list is whatever Postgres hands back, so the
     // children could swap places between two loads of the same screen.
     return this.repo.find({ where: { tenantId, isActive: 1 }, order: { createdAt: 'ASC' } });
   }

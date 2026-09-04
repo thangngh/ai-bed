@@ -36,7 +36,7 @@ bền vững cho các gia đình Việt. Bạn có thể đồng hành mà khôn
 ┌──────────┐     ┌──────────┐     ┌──────────┐
 │  FE      │ →   │  BE      │ →   │  Engine  │
 │  React 19│     │  NestJS  │     │  FastAPI │
-│  Vite    │ ←   │  SQLite  │ ←   │  LLM     │
+│  Vite    │ ←   │ Postgres │ ←   │  LLM     │
 └──────────┘     └──────────┘     └──────────┘
 ```
 
@@ -148,7 +148,7 @@ Start the Engine and the BE first: the SPA has no fallback story generator.
 | PORT | 3001 | BE server port |
 | ENGINE_URL | http://localhost:8000 | Engine base URL (compose overrides it to `http://engine:8000`) |
 | ENGINE_TIMEOUT_MS | 60000 | Must stay above the Engine's `PIPELINE_BUDGET_SECONDS` so a slow run returns a fallback story, not a 502. The HA overlay raises it to 230000 |
-| DB_PATH | ./data | SQLite files directory |
+| DATABASE_URL | - | Postgres connection string, e.g. `postgresql://ai_bed:<password>@localhost:5434/ai_bed`. No default; the BE refuses to boot without it |
 | QUEUE_MAX_CONCURRENT | 2 | Bottleneck per-tenant limit |
 | QUEUE_MIN_TIME_MS | 6000 | Minimum time between jobs |
 | RATE_LIMIT_CAPACITY | 10 | Token bucket capacity |
@@ -218,7 +218,7 @@ AI-BEDTIME/
 │   │   ├── common/     # Middleware, guards, filters, pipes
 │   │   ├── modules/    # Tenant, Child, Story, Feedback, Memory, EngineGateway
 │   │   └── config/     # App, memory, rate-limit configs (engine config lives with its module)
-│   └── data/           # SQLite runtime files
+│   └── data/           # empty except .gitkeep (schema lives in Postgres, not here)
 ├── Engine/      # Python FastAPI engine
 │   ├── core/
 │   │   ├── llm/        # Multi-LLM clients (OpenAI/Gemini/Custom)
@@ -259,5 +259,5 @@ fast does generation succeed", the same request repeated for statistics.
 - **Frontend**: React 19, Vite, Tailwind CSS, Lucide icons
 - **Backend**: NestJS 11, TypeORM, Bottleneck, class-validator
 - **Engine**: Python 3.11, FastAPI, OpenAI SDK, google-genai SDK
-- **Database**: SQLite (dual: core.db + local.db)
+- **Database**: PostgreSQL 16 (single schema, TypeORM migrations)
 - **LLM Providers**: OpenAI (multi-key round-robin) → Gemini → Custom

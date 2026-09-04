@@ -85,7 +85,7 @@ export class AdminFeedbackService {
       where.note = Raw((alias) => `${alias} IS NULL OR ${alias} = ''`);
     }
 
-    // The UI date inputs are Vietnam calendar dates; SQLite stores UTC. Shift
+    // The UI date inputs are Vietnam calendar dates; Postgres stores UTC. Shift
     // both boundaries to UTC before using their sortable timestamp strings.
     if (query.from && query.to) {
       where.createdAt = Raw(

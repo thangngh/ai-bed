@@ -410,7 +410,7 @@ TENANT DATA:
 | Decision | Option chọn | Lý do |
 |---|---|---|
 | Tenant isolation | Row-level (tenant_id column) | Đơn giản, đủ cho MVP |
-| Memory storage | SQLite table | Không cần vector DB ở MVP |
+| Memory storage | Postgres table (`memory_items`) | Không cần vector DB ở MVP |
 | LLM retry | Tối đa 2 lần/stage | Balance cost vs quality |
 | Fallback | Story mẫu tĩnh | Không để user thấy error trần |
 | Prompt storage | File templates | Dễ edit, version control |

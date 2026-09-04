@@ -40,7 +40,7 @@ describe('Postgres test harness', () => {
     expect(await b.getRepository(Tenant).count()).toBe(0);
   });
 
-  it('applies the Postgres-side created_at default in the SQLite text shape', async () => {
+  it('applies the Postgres-side created_at default in the plain text timestamp shape', async () => {
     await a.getRepository(Tenant).insert({ tenantId: 'iso-2', name: 'b' });
 
     const row = await a.getRepository(Tenant).findOneByOrFail({ tenantId: 'iso-2' });
