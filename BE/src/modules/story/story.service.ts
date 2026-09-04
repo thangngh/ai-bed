@@ -177,7 +177,10 @@ export class StoryService {
   private async getRecentSummaries(tenantId: string, childId: string) {
     const recent = await this.storyRepo.find({
       where: { tenantId, childId },
-      order: { createdAt: 'DESC' },
+      // `createdAt` is only second-granularity text; break ties on the
+      // primary key so paging/ordering is stable when rows share a second
+      // (Postgres, unlike SQLite's rowid, gives no implicit tiebreaker).
+      order: { createdAt: 'DESC', storyId: 'DESC' },
       take: 3,
     });
     return recent.map(s => ({ title: s.title, theme: s.theme }));
@@ -206,7 +209,7 @@ export class StoryService {
     }
     return this.storyRepo.find({
       where,
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'DESC', storyId: 'DESC' },
       take: limit,
     });
   }

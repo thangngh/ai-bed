@@ -131,6 +131,40 @@ describe('AdminFeedbackService.list', () => {
     expect(page).toEqual({ items: [], total: 0, limit: 20, offset: 0 });
   });
 
+  it('pages through rows sharing one createdAt second without duplicates or gaps', async () => {
+    // `created_at` is only second-granularity text. Under Postgres (unlike
+    // SQLite, where rowid gave ties a de-facto stable order), an ORDER BY
+    // with no tiebreaker can place tied rows differently between two
+    // executions of the same query — so an admin paging through the list can
+    // see a row twice or miss one whenever two rows share a timestamp
+    // second. Seed a batch that all share one second, inserted out of id
+    // order, then walk every page and confirm each row surfaces exactly once.
+    const tiedRows = Array.from({ length: 12 }, (_, i) => ({
+      feedbackId: `tied-${String(i).padStart(2, '0')}`,
+      storyId: 's1',
+      childId: 'c1',
+      rating: 3,
+      note: null,
+      createdAt: '2026-08-10 10:00:00',
+    })).sort(() => Math.random() - 0.5);
+    await ds.getRepository(Feedback).save(
+      tiedRows.map((r) => Object.assign(new Feedback(), { tenantId: 't1', ...r })),
+    );
+
+    const seen: string[] = [];
+    for (let offset = 0; offset < 18; offset += 5) {
+      const page = await service.list({ limit: 5, offset });
+      seen.push(...page.items.map((i) => i.feedback_id));
+    }
+
+    const tiedSeen = seen.filter((id) => id.startsWith('tied-'));
+    expect(tiedSeen.sort()).toEqual(
+      tiedRows.map((r) => r.feedbackId).sort(),
+    );
+    // No duplicates across page boundaries.
+    expect(new Set(seen).size).toBe(seen.length);
+  });
+
   it('degrades to null titles when the story lookup fails', async () => {
     // Story titles are looked up from the same datasource as everything else
     // now, so there is no separate connection left to sever. Dropping the

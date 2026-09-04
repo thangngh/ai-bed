@@ -39,7 +39,10 @@ export class AdminFeedbackService {
 
     const [rows, total] = await this.core.getRepository(Feedback).findAndCount({
       where: this.buildWhere(query),
-      order: { createdAt: 'DESC' },
+      // `createdAt` is only second-granularity text, so rows sharing a second
+      // need a tiebreaker or Postgres may reorder them between pages,
+      // duplicating or skipping rows for an admin paging through the list.
+      order: { createdAt: 'DESC', feedbackId: 'DESC' },
       take: limit,
       skip: offset,
     });
