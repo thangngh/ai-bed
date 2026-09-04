@@ -41,22 +41,17 @@ function readPassword(): string {
 async function main(): Promise<void> {
   const username = readUsername(process.argv);
   const password = readPassword();
-  const database = process.env.CORE_DB_PATH || 'data/core.db';
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error('DATABASE_URL is not set. See BE/.env.example.');
+  }
 
-  const ds = new DataSource({ type: 'sqlite', database, entities: [AdminUser] });
+  // No CREATE TABLE here any more: `admin_users` comes from
+  // CreateCoreTables1756166400001, which the app runs on boot. If this script
+  // fails with "relation admin_users does not exist", run `npm run
+  // migration:run` first rather than re-adding a second schema source.
+  const ds = new DataSource({ type: 'postgres', url, entities: [AdminUser] });
   await ds.initialize();
-
-  // `synchronize` is only on for NODE_ENV=development (app.module.ts), so on a
-  // production box this script is what brings the table into existence.
-  await ds.query(`
-    CREATE TABLE IF NOT EXISTS admin_users (
-      admin_id      TEXT PRIMARY KEY,
-      username      TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-      last_login_at TEXT
-    )
-  `);
 
   const repo = ds.getRepository(AdminUser);
   const passwordHash = await hashPassword(password);
@@ -64,10 +59,10 @@ async function main(): Promise<void> {
 
   if (existing) {
     await repo.update({ adminId: existing.adminId }, { passwordHash });
-    console.log(`Password reset for admin "${username}" in ${database}.`);
+    console.log(`Password reset for admin "${username}".`);
   } else {
     await repo.insert({ adminId: randomUUID(), username, passwordHash });
-    console.log(`Admin "${username}" created in ${database}.`);
+    console.log(`Admin "${username}" created.`);
   }
 
   await ds.destroy();
