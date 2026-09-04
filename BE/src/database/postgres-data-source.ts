@@ -21,7 +21,7 @@ import {
 
 // Entry point for the migration CLI (`migration:run` / `migration:revert` /
 // `migration:show` in package.json). The entity list mirrors app.module.ts's
-// `core` TypeOrmModule.forRoot() registration.
+// `core` TypeOrmModule.forRootAsync() registration.
 const PostgresDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
