@@ -1,4 +1,5 @@
 import { Entity, PrimaryColumn, Column } from 'typeorm';
+import { NOW_UTC_TEXT_EXPR } from '../../../database/now-default-expr';
 
 @Entity('memory_items')
 export class MemoryItem {
@@ -41,6 +42,6 @@ export class MemoryItem {
   @Column({ name: 'expires_at', type: 'text', nullable: true })
   expiresAt?: string;
 
-  @Column({ name: 'created_at', type: 'text', default: () => "datetime('now')" })
+  @Column({ name: 'created_at', type: 'text', default: () => NOW_UTC_TEXT_EXPR })
   createdAt?: string;
 }

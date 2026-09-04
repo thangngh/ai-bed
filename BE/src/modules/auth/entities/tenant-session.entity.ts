@@ -1,4 +1,5 @@
 import { Entity, PrimaryColumn, Column, Index } from 'typeorm';
+import { NOW_UTC_TEXT_EXPR } from '../../../database/now-default-expr';
 
 /**
  * One row per live refresh token. The raw token only ever exists in the
@@ -27,6 +28,6 @@ export class TenantSession {
   @Column({ name: 'created_ip', type: 'text', nullable: true })
   createdIp?: string | null;
 
-  @Column({ name: 'created_at', type: 'text', default: () => "datetime('now')" })
+  @Column({ name: 'created_at', type: 'text', default: () => NOW_UTC_TEXT_EXPR })
   createdAt?: string;
 }

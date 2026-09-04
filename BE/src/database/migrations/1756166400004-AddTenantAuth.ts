@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner, Table, TableForeignKey } from 'typeorm';
-import { nowDefaultExpr } from '../now-default-expr';
+import { NOW_UTC_TEXT_EXPR } from '../now-default-expr';
 
 /**
  * Turns `tenants` into a real parent account.
@@ -13,7 +13,7 @@ export class AddTenantAuth1756166400004 implements MigrationInterface {
   name = 'AddTenantAuth1756166400004';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const now = nowDefaultExpr(queryRunner);
+    const now = NOW_UTC_TEXT_EXPR;
 
     await queryRunner.query(`ALTER TABLE "tenants" ADD COLUMN "email" text`);
 

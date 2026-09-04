@@ -1,5 +1,6 @@
 import { Entity, PrimaryColumn, Column, OneToMany } from 'typeorm';
 import { StorySection } from './story-section.entity';
+import { NOW_UTC_TEXT_EXPR } from '../../../database/now-default-expr';
 
 @Entity('stories')
 export class Story {
@@ -57,7 +58,7 @@ export class Story {
   @Column({ name: 'is_saved', type: 'integer', default: 0 })
   isSaved!: number;
 
-  @Column({ name: 'created_at', type: 'text', default: () => "datetime('now')" })
+  @Column({ name: 'created_at', type: 'text', default: () => NOW_UTC_TEXT_EXPR })
   createdAt?: string;
 
   @OneToMany(() => StorySection, section => section.story)

@@ -1,11 +1,11 @@
 import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
-import { nowDefaultExpr } from '../now-default-expr';
+import { NOW_UTC_TEXT_EXPR } from '../now-default-expr';
 
 export class CreateDashboardTables1756166400002 implements MigrationInterface {
   name = 'CreateDashboardTables1756166400002';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const now = nowDefaultExpr(queryRunner);
+    const now = NOW_UTC_TEXT_EXPR;
 
     await queryRunner.createTable(
       new Table({

@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, Index } from 'typeorm';
+import { NOW_UTC_TEXT_EXPR } from '../../../../database/now-default-expr';
 
 export type RuleType = 'ip' | 'cidr';
 export type RuleAction = 'allow' | 'deny';
@@ -21,7 +22,7 @@ export class IpRule {
   note!: string | null;
   @Column({ name: 'created_by', type: 'varchar', length: 64 })
   createdBy!: string;
-  @Column({ name: 'created_at', type: 'varchar', length: 25, default: () => "datetime('now')" })
+  @Column({ name: 'created_at', type: 'varchar', length: 25, default: () => NOW_UTC_TEXT_EXPR })
   createdAt!: string;
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
