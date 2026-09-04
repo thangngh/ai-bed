@@ -4,9 +4,8 @@ import request from 'supertest';
 import { AppModule } from '../../../app.module';
 import {
   CORE_TOKEN,
-  LOCAL_TOKEN,
-  openTestDataSources,
-  closeTestDataSources,
+  openTestDataSource,
+  closeTestDataSource,
 } from '../../../common/__tests__/test-db';
 
 // Only runs when E2E=1 (Engine must be running on ENGINE_URL)
@@ -16,20 +15,15 @@ describeE2E('Story flow with real Engine', () => {
   let app: INestApplication;
   let module: TestingModule;
   let core: any;
-  let local: any;
 
   async function buildApp(engineUrl: string) {
     process.env.ENGINE_URL = engineUrl;
-    const ds = await openTestDataSources();
-    core = ds.core;
-    local = ds.local;
+    core = await openTestDataSource();
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CORE_TOKEN)
       .useValue(core)
-      .overrideProvider(LOCAL_TOKEN)
-      .useValue(local)
       .compile();
     app = module.createNestApplication();
     await app.init();
@@ -40,7 +34,7 @@ describeE2E('Story flow with real Engine', () => {
   });
 
   afterAll(async () => {
-    await closeTestDataSources(core, local);
+    await closeTestDataSource(core);
   });
 
   it('POST /story/create returns 201 with story from real Engine', async () => {
@@ -94,7 +88,7 @@ describeE2E('Story flow with real Engine', () => {
   }, 60000);
 
   it('returns 502 ENGINE_UNAVAILABLE when Engine is down', async () => {
-    await closeTestDataSources(core, local);
+    await closeTestDataSource(core);
 
     const saveUrl = process.env.ENGINE_URL;
     await buildApp('http://localhost:65534');

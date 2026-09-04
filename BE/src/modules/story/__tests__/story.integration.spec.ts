@@ -7,9 +7,8 @@ import { EngineGatewayService } from '../../engine-gateway/engine-gateway.servic
 import { ValidationPipe } from '../../../common/pipes/validation.pipe';
 import {
   CORE_TOKEN,
-  LOCAL_TOKEN,
-  openTestDataSources,
-  closeTestDataSources,
+  openTestDataSource,
+  closeTestDataSource,
 } from '../../../common/__tests__/test-db';
 
 const VALID_TENANT = '12345678-1234-4123-8123-123456789abc';
@@ -23,20 +22,15 @@ describe('Story Module (integration)', () => {
   let app: INestApplication;
   let module: TestingModule;
   let core: DataSource;
-  let local: DataSource;
   const engineGenerate = jest.fn();
 
   beforeAll(async () => {
-    const ds = await openTestDataSources();
-    core = ds.core;
-    local = ds.local;
+    core = await openTestDataSource();
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CORE_TOKEN)
       .useValue(core)
-      .overrideProvider(LOCAL_TOKEN)
-      .useValue(local)
       .overrideProvider(EngineGatewayService)
       .useValue({ generate: engineGenerate })
       .compile();
@@ -65,11 +59,11 @@ describe('Story Module (integration)', () => {
   });
 
   afterAll(async () => {
-    // Manual destroy() is required because app.close()/module.close() throw for
-    // named `forRootAsync` datasources: @nestjs/typeorm drops the `name` field
+    // Manual close() is required because app.close()/module.close() throw for
+    // a named `forRootAsync` datasource: @nestjs/typeorm drops the `name` field
     // from the resolved options, so the shutdown hook looks up the wrong token.
-    // If that framework shutdown bug is fixed, remove the manual destroy.
-    await closeTestDataSources(core, local);
+    // If that framework shutdown bug is fixed, remove the manual close.
+    await closeTestDataSource(core);
   });
 
   it('POST /story/create without X-Tenant-Id auto-creates tenant and returns 201', async () => {
