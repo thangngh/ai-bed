@@ -123,11 +123,15 @@ export class AdminFeedbackService {
         select: ['storyId', 'title'],
       });
       return new Map(stories.map((s) => [s.storyId, s.title]));
-    } catch {
+    } catch (err) {
       // A failed title lookup costs titles on this page, not the whole
       // response — feedback rows still render without them.
       this.logger.warn(
-        JSON.stringify({ event: 'admin_story_title_lookup_failed', count: ids.length }),
+        JSON.stringify({
+          event: 'admin_story_title_lookup_failed',
+          count: ids.length,
+          error: err instanceof Error ? err.message : String(err),
+        }),
       );
       return new Map();
     }
