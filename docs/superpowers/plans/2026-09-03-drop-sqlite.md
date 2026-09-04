@@ -16,7 +16,7 @@
 - The datasource keeps the name `core`. Do **not** rename it to the unnamed default connection — a missed `forFeature`/`getDataSourceToken` fails only at boot, with no compile-time signal.
 - `synchronize` is `false` everywhere, including tests. Schema comes from migrations only.
 - The Postgres `*_at` text format stays exactly `'YYYY-MM-DD HH:MM:SS'` (produced by `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`). `vietnam-time.ts` and `analytics.service.ts` parse that shape; changing it breaks them.
-- No `onDelete` / cascade behavior is introduced on any foreign key.
+- No `onDelete` / cascade behavior is **introduced** on any foreign key by this plan. Note that one already exists and must be left alone: `tenant_sessions.tenant_id` carries `onDelete: 'CASCADE'`, added by `1756166400004-AddTenantAuth.ts` (the parent-Google-OAuth work, which landed before this plan). So the schema has five foreign keys, four with default `NO ACTION` and that one cascading. Documentation must say so.
 - The existing `BE/data/core.db` and `BE/data/local.db` rows are **not** migrated. They are already backed up to the session scratchpad at `D:\Temp\claude\e--pet-project-AI-BEDTIME\e10b13de-c2e5-4ddb-b09e-2e373f6170f1\scratchpad\sqlite-backup\`.
 - The commented-out `networks:` blocks in `docker-compose.yml` are an unrelated local change. Leave them exactly as found — do not revert and do not stage them.
 - The npm/pnpm dual-lockfile situation is out of scope. Keep `npm ci` in the Dockerfile and keep `package-lock.json`. Do not commit `pnpm-lock.yaml`.
@@ -1337,8 +1337,16 @@ Add directly under the `**Status:**` line of `docs/superpowers/specs/2026-08-26-
 
 - [ ] **Step 4: Check for remaining SQLite claims in docs**
 
-Run: `cd /e/pet-project/AI-BEDTIME && grep -rn -i "sqlite" README.md docs/*.md`
-Expected: only historical references inside `docs/superpowers/specs/` and `docs/superpowers/plans/` (those are dated records — leave them), plus the superseded note added above. Anything in `README.md` or a numbered `docs/NN-*.md` file that still describes current behavior must be fixed.
+Grep for both spellings — `sqlite` alone misses the many places that name the two database files directly:
+
+```bash
+cd /e/pet-project/AI-BEDTIME
+grep -rn -i "sqlite\|core\.db\|local\.db" README.md docs/*.md
+```
+
+Expected: only explicitly-past-tense historical notes. A surviving reference is acceptable only where the surrounding sentence marks it as history ("the MVP ran two SQLite files…"); anything written in the present tense, describing how the system stores data *now*, must be fixed.
+
+`docs/05-business-logic-mvp.md` is in scope here even though it is not in this task's file list: its data-flow diagrams and section headers route writes to `core.db` and `local.db` in the present tense (around lines 18-21, 85, 94, 272-273, 296-297). Those are now false. Rewrite them to name the tables on the single Postgres datasource, keeping the private-versus-user-visible distinction the document is actually making — that distinction was about schema namespacing, and it survives as a documentation concept even though the two files do not.
 
 - [ ] **Step 5: Commit**
 
