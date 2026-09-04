@@ -80,14 +80,18 @@ describe('Postgres migrations', () => {
   });
 
   it('reverts all migrations cleanly', async () => {
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
-    await dataSource.undoLastMigration();
+    const migrationCount = dataSource.migrations.length;
+    for (let i = 0; i < migrationCount; i++) {
+      await dataSource.undoLastMigration();
+    }
 
     const rows: { table_name: string }[] = await dataSource.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
     );
-    expect(rows.map((r) => r.table_name)).not.toEqual(expect.arrayContaining(EXPECTED_TABLES));
+    // Once every migration's down() has run, the only thing left in the
+    // public schema should be TypeORM's own migration-tracking table — no
+    // application table should survive a full revert.
+    expect(rows.map((r) => r.table_name)).toEqual(['migrations']);
 
     // Restore schema so a re-run of this file (e.g. --watch) starts clean.
     await dataSource.runMigrations();
