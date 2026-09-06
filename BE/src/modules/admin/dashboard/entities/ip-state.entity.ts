@@ -1,4 +1,5 @@
 import { Entity, PrimaryColumn, Column } from 'typeorm';
+import { NOW_UTC_TEXT_EXPR } from '../../../../database/now-default-expr';
 
 // 'temp_blocked' is reserved for a future time-limited block. It is validated
 // in IpStateQueryDto and ranked in severityRank, but no code path currently
@@ -21,6 +22,6 @@ export class IpState {
   autoBlocked!: boolean;
   @Column({ type: 'text', nullable: true })
   reason!: string | null;
-  @Column({ name: 'updated_at', type: 'varchar', length: 25, default: () => "datetime('now')" })
+  @Column({ name: 'updated_at', type: 'varchar', length: 25, default: () => NOW_UTC_TEXT_EXPR })
   updatedAt!: string;
 }

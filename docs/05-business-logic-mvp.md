@@ -14,11 +14,13 @@
 [Input] → [Normalize] → [Validate] → [Build Context] → [Assemble Prompts]
     → [Planner] → [Writer] → [Reviewer] → [Extract Memory] → [Save] → [Response]
 
-DB Split:
-  Validate:           tenants + child_profiles  → core.db (private schema)
-  Build Context:      memories                  → local.db (user-visible)
-  Save Story:         stories + sections        → local.db (user-visible)
-  Save Feedback:      feedbacks                 → core.db (private schema)
+Table groups (all live in the one Postgres `core` datasource; "private" vs
+"user-visible" is a naming convention carried over from the old two-file
+SQLite split, not separate storage — see docs/04 §1):
+  Validate:           tenants + child_profiles  → private tables
+  Build Context:      memories                  → user-visible tables
+  Save Story:         stories + sections        → user-visible tables
+  Save Feedback:      feedbacks                 → private tables
 ```
 
 ### 1.2 Detailed Logic per Stage
@@ -82,20 +84,20 @@ Output:
 
 ```
 function buildContext(normalized, tenantId):
-  // ─── core.db (private schema) ───
+  // ─── private tables: tenants, child_profiles ───
   1. Query child profile by tenantId + childName
   2. If profile exists → load:
      - interests
      - preferredCharacters
      - bedtimeGoal
      - previous themes (last 5)
-  3. If NO profile → create one in Core DB with basic info
+  3. If NO profile → create one (private tables) with basic info
 
-  // ─── local.db (user-visible) ───
+  // ─── user-visible tables: memory_items, stories ───
   4. Query active memories (top 5 by confidence):
      - memoryType in ['interest', 'character', 'feedback']
      - filter: tenantId, childId, isActive=true
-  5. Query last 2 stories from Local DB (for continuity)
+  5. Query last 2 stories (user-visible tables, for continuity)
   6. Build context object:
      {
        child: { name, age, interests, previousThemes, ... },
@@ -106,8 +108,8 @@ function buildContext(normalized, tenantId):
   7. Return context
 
 Rule: Không nhét toàn bộ history — tối đa 5 memories + 2 recent stories
-Core DB: tenant + child profile
-Local DB: memories + stories
+Private tables: tenant + child profile
+User-visible tables: memories + stories
 ```
 
 #### Stage 4: Assemble Prompts (Engine)
@@ -263,14 +265,14 @@ Fallback story text = VIETNAMESE
 }
 ```
 
-**Memory write policy (→ Local DB):**
+**Memory write policy (→ `memory_items`, user-visible tables):**
 - Chỉ lưu memory với `confidence >= 0.3`
 - `type: "feedback"` chỉ lưu khi đến từ explicit feedback (không extract từ story)
 - De-duplicate: nếu `key` đã tồn tại và có `confidence` cao hơn → update
 - `type: "child_name"` → chỉ lưu nếu chưa có
 - Giới hạn 10 memories active per child (oldest bị deactivate)
-- Memory → local.db (user-visible)
-- Feedback → core.db (private, ẩn design)
+- Memory → `memory_items` (user-visible tables)
+- Feedback → `feedbacks` (private tables, ẩn design)
 
 ---
 
@@ -284,17 +286,17 @@ Fallback story text = VIETNAMESE
 
 ```
 function processFeedback(input):
-  1. Validate: story_id tồn tại? → Local DB
-     Tenant tồn tại? → Core DB
-  2. Lưu feedback record → Core DB (private analytics)
+  1. Validate: story_id tồn tại? → `stories` (user-visible tables)
+     Tenant tồn tại? → `tenants` (private tables)
+  2. Lưu feedback record → `feedbacks` (private tables, analytics)
   3. Nếu rating >= 4:
-     - memory_item (Local DB): type='feedback', key='liked_theme', value=story.theme
-     - memory_item (Local DB): type='feedback', key='liked_character', value=extracted
+     - memory_item (user-visible tables): type='feedback', key='liked_theme', value=story.theme
+     - memory_item (user-visible tables): type='feedback', key='liked_character', value=extracted
   4. Nếu rating <= 2:
-     - memory_item (Local DB): type='feedback', key='disliked_theme', value=story.theme
+     - memory_item (user-visible tables): type='feedback', key='disliked_theme', value=story.theme
 
-Rule: FEEDBACK → core.db (private, ẩn design)
-       MEMORY update → local.db (user-visible)
+Rule: FEEDBACK → `feedbacks` (private tables, ẩn design)
+       MEMORY update → `memory_items` (user-visible tables)
        Feedback KHÔNG modify story content.
        Feedback chỉ ảnh hưởng đến lần sinh truyện SAU.
 ```
@@ -410,7 +412,7 @@ TENANT DATA:
 | Decision | Option chọn | Lý do |
 |---|---|---|
 | Tenant isolation | Row-level (tenant_id column) | Đơn giản, đủ cho MVP |
-| Memory storage | SQLite table | Không cần vector DB ở MVP |
+| Memory storage | Postgres table (`memory_items`) | Không cần vector DB ở MVP |
 | LLM retry | Tối đa 2 lần/stage | Balance cost vs quality |
 | Fallback | Story mẫu tĩnh | Không để user thấy error trần |
 | Prompt storage | File templates | Dễ edit, version control |

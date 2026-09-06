@@ -6,7 +6,6 @@
     "build": "nest build",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
-    "db:init": "node scripts/create-all-tables.js",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/postgres-data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/postgres-data-source.ts",
     "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/postgres-data-source.ts",
@@ -14,9 +13,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "lint": "tsc --noEmit",
-    "admin:create": "ts-node -P tsconfig.json scripts/create-admin.ts",
-    "check:core-orphans": "ts-node -P tsconfig.json scripts/check-core-orphans.ts",
-    "migrate:core": "ts-node -P tsconfig.json scripts/migrate-core-to-postgres.ts"
+    "admin:create": "ts-node -P tsconfig.json scripts/create-admin.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -33,7 +30,6 @@
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "sqlite3": "^5.1.7",
     "typeorm": "^0.3.20",
     "undici": "^8.10.0",
     "uuid": "^10.0.0"
@@ -73,9 +69,11 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
-    "testTimeout": 15000,
+    "testTimeout": 60000,
     "setupFiles": [
       "<rootDir>/test-setup.ts"
-    ]
+    ],
+    "globalSetup": "<rootDir>/common/__tests__/global-setup.ts",
+    "globalTeardown": "<rootDir>/common/__tests__/global-teardown.ts"
   }
 }

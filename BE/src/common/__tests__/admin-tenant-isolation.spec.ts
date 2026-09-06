@@ -8,9 +8,8 @@ import { EngineGatewayService } from '../../modules/engine-gateway/engine-gatewa
 import { HttpExceptionFilter } from '../filters/http-exception.filter';
 import {
   CORE_TOKEN,
-  LOCAL_TOKEN,
-  openTestDataSources,
-  closeTestDataSources,
+  openTestDataSource,
+  closeTestDataSource,
 } from './test-db';
 
 jest.setTimeout(60_000);
@@ -22,20 +21,15 @@ describe('/admin never mints a tenant', () => {
   let app: INestApplication;
   let module: TestingModule;
   let core: DataSource;
-  let local: DataSource;
 
   beforeAll(async () => {
-    const ds = await openTestDataSources();
-    core = ds.core;
-    local = ds.local;
+    core = await openTestDataSource();
 
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CORE_TOKEN)
       .useValue(core)
-      .overrideProvider(LOCAL_TOKEN)
-      .useValue(local)
       .overrideProvider(EngineGatewayService)
       .useValue({ generate: jest.fn() })
       .compile();
@@ -46,9 +40,9 @@ describe('/admin never mints a tenant', () => {
   });
 
   afterAll(async () => {
-    // Manual destroy() — see story.integration.spec.ts for the reason:
-    // app.close()/module.close() throw for named `forRootAsync` datasources.
-    await closeTestDataSources(core, local);
+    // Manual close() — app.close()/module.close() throw for named
+    // `forRootAsync` datasources.
+    await closeTestDataSource(core);
   });
 
   it('leaves the tenants table untouched across admin requests', async () => {

@@ -1,4 +1,5 @@
 import { Entity, PrimaryColumn, Column } from 'typeorm';
+import { NOW_UTC_TEXT_EXPR } from '../../../database/now-default-expr';
 
 @Entity('feedbacks')
 export class Feedback {
@@ -29,6 +30,6 @@ export class Feedback {
   @Column({ name: 'note', type: 'text', nullable: true })
   note?: string;
 
-  @Column({ name: 'created_at', type: 'text', default: () => "datetime('now')" })
+  @Column({ name: 'created_at', type: 'text', default: () => NOW_UTC_TEXT_EXPR })
   createdAt?: string;
 }

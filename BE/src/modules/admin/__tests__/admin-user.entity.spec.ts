@@ -1,10 +1,9 @@
 import { AdminUser } from '../entities/admin-user.entity';
-import { makeDataSource } from '../../../common/__tests__/test-db';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 describe('AdminUser entity', () => {
   it('creates an admin_users table with a unique username', async () => {
-    const ds = makeDataSource([AdminUser]);
-    await ds.initialize();
+    const ds = await openTestDataSource();
     const repo = ds.getRepository(AdminUser);
 
     await repo.save(Object.assign(new AdminUser(), {
@@ -22,6 +21,6 @@ describe('AdminUser entity', () => {
       })),
     ).rejects.toThrow();
 
-    await ds.destroy();
+    await closeTestDataSource(ds);
   });
 });

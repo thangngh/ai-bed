@@ -52,7 +52,7 @@ Hệ thống gồm **3 lớp (layers)** với ranh giới rõ ràng:
 │                                                             │
 │  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌────────┐  │
 │  │ Controller│→│ Service  │→│ Engine      │→│ DB     │  │
-│  │ (route)   │  │ (logic)  │  │ Gateway     │  │ (SQLite)│  │
+│  │ (route)   │  │ (logic)  │  │ Gateway     │  │Postgres│  │
 │  └──────────┘  └──────────┘  └─────┬───────┘  └────────┘  │
 │  ┌──────────┐  ┌──────────┐        │                        │
 │  │ Validation│  │ Middleware│       │                        │
@@ -152,68 +152,65 @@ Không cần login. Không OAuth. Không auth middleware.
 
 **Tenant = device UUID tự sinh. Zero friction. MVP chỉ có vậy.**
 
-### DB Split — 2 File SQLite trên CÙNG HOST
+### DB — Một database Postgres trên CÙNG HOST
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │              NESTJS SERVER (single host)                 │
 │                                                         │
 │  ┌─────────────────────────────────────────────────┐   │
-│  │  core.db — PRIVATE schema, ẩn design            │   │
+│  │  Postgres 16 — một datasource `core`            │   │
 │  │                                                 │   │
-│  │  ├── tenants          (quản lý device tenant)   │   │
-│  │  ├── child_profiles   (thông tin bé)            │   │
-│  │  └── feedbacks        (phản hồi)               │   │
+│  │  ├── tenants, child_profiles, feedbacks,        │   │
+│  │  │   admin_users, tenant_sessions               │   │
+│  │  ├── stories, story_sections, memory_items      │   │
+│  │  └── traffic_event, llm_usage_event, ip_rules,  │   │
+│  │      ip_states, alerts, admin_settings, và      │   │
+│  │      2 bảng hourly rollup                        │   │
 │  │                                                 │   │
-│  │  → KHÔNG expose entity này qua API GET raw     │   │
-│  │  → Chỉ BE services được quyền đọc/ghi           │   │
+│  │  → Schema owned bởi 5 TypeORM migrations         │   │
+│  │  → Chỉ BE services đọc/ghi qua TypeORM           │   │
 │  └─────────────────────────────────────────────────┘   │
 │                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  local.db — PUBLIC schema, sẵn sàng expose      │   │
-│  │                                                 │   │
-│  │  ├── stories          (truyện đã sinh)          │   │
-│  │  ├── story_sections   (nội dung sections)       │   │
-│  │  └── memory_items     (personalization)         │   │
-│  │                                                 │   │
-│  │  → API GET /story/latest trả data từ file này   │   │
-│  │  → User-visible, design không nhạy cảm          │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  Cả 2 file: SQLite, local, cùng ổ cứng, cùng BE.      │
-│  Không có DB server riêng. Không sync cloud.          │
-│  Không cần login để xác thực.                          │
+│  Container Postgres riêng (docker compose), không       │
+│  sync cloud. Tenant vẫn là device UUID, không cần        │
+│  login — Google sign-in cho phụ huynh (`tenant_sessions`, │
+│  §3.5 của docs/04) là một cơ chế auth riêng, tách biệt.  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Tại sao 2 file, không 1?** — Giấu design, không phải architectural split.
-
-| File | Entities | Mục đích |
-|---|---|---|
-| `core.db` | `tenants`, `child_profiles`, `feedbacks` | Schema internal — nếu lộ sẽ thấy thiết kế business (cách tenant tracking, feedback analytics) |
-| `local.db` | `stories`, `story_sections`, `memory_items` | Schema có thể public — user thấy "có truyện, có memory" không hại gì |
+**Lịch sử:** bản MVP (2026-07) chạy 2 file SQLite riêng, `core.db` (private
+schema, giấu thiết kế business) và `local.db` (public schema, sẵn sàng
+expose). Đây chỉ là namespacing schema trên cùng một ổ đĩa/BE, **không phải**
+client-side hay browser storage — `local.db` không liên quan đến
+`localStorage` mà FE dùng để cache tenant-id ở trình duyệt, hai thứ đó luôn
+tách biệt. Từ 2026-09, cả 6 bảng của 2 file cũ (`tenants`, `child_profiles`,
+`feedbacks`, `stories`, `story_sections`, `memory_items`) sống chung trong
+một schema Postgres duy nhất; sự tách biệt private/public không còn tồn tại
+ở tầng DB — xem `docs/04-schema-db-document.md` cho chi tiết bảng và
+migration.
 
 ### Data Flow
 
 ```
 Story Create:
   FE POST /story/create (X-Tenant-Id)
-  → BE: validate tenant (core.db)
-  → BE: get/create child (core.db)
+  → BE: validate tenant (Postgres)
+  → BE: get/create child (Postgres)
   → BE → Engine → LLM Pipeline
-  → BE: save story (local.db)
-  → BE: save memory (local.db)
+  → BE: save story (Postgres)
+  → BE: save memory (Postgres)
   → Return story JSON
 
 Story Read:
   FE GET /story/latest (X-Tenant-Id)
-  → BE: read stories (local.db) WHERE tenant_id
+  → BE: read stories (Postgres) WHERE tenant_id
   → Return list
 
 Feedback:
   FE POST /story/feedback (X-Tenant-Id)
-  → BE: save (core.db) — private, giấu analytics
-  → BE: update memory (local.db) — user-visible
+  → BE: save (Postgres)
+  → BE: update memory (Postgres)
   → Return OK
 ```
 
@@ -224,8 +221,7 @@ Feedback:
 | FE | React / NextJS | Phổ biến, dễ hire |
 | BE | NestJS | Opinionated, module hóa, validation built-in |
 | Engine | Python (FastAPI) / Mastra | Hệ sinh thái LLM mạnh, async support |
-| Core DB | SQLite file (`core.db`) | Private schema, ẩn design |
-| Local DB | SQLite file (`local.db`) | User-visible, sẵn sàng public |
+| Database | PostgreSQL 16, một datasource `core` | Schema owned bởi TypeORM migrations, chạy tự động khi boot |
 | LLM | OpenAI / Claude compatible API | Abstraction qua Engine |
 | Validation | class-validator (NestJS) + Pydantic (Python) | Cả 2 tầng |
 | Logging | Structured JSON log | Dễ debug |
@@ -233,26 +229,25 @@ Feedback:
 ## 8. Deployment Architecture (MVP)
 
 ```
-┌─────────────────────────────────────────────┐
-│          Single Host / Docker                │
-│                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  FE      │→ │  BE      │→ │  Engine  │  │
-│  │ (NextJS) │  │ (NestJS) │  │ (Python) │  │
-│  └──────────┘  └────┬─────┘  └──────────┘  │
-│                     │                       │
-│            ┌────────┴────────┐              │
-│            │  data/          │              │
-│            │  ├── core.db    │  private     │
-│            │  └── local.db   │  public      │
-│            └─────────────────┘              │
-└─────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    Single Host / Docker                    │
+│                                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │  FE      │→ │  BE      │→ │  Engine  │  │ Postgres │   │
+│  │ (NextJS) │  │ (NestJS) │  │ (Python) │  │   16     │   │
+│  └──────────┘  └────┬─────┘  └──────────┘  └────▲─────┘   │
+│                      └───────────────────────────┘         │
+└───────────────────────────────────────────────────────────┘
 ```
 
-- **Tất cả 1 host** — BE + FE + Engine + DB cùng instance
-- `core.db` + `local.db` cùng thư mục `data/`
-- **Không login endpoint** — tenant-id từ local storage FE
-- **Không auth, không sync cloud** — zero ops cho MVP
+- **Tất cả 1 host** — BE + FE + Engine + Postgres, mỗi service một container
+  (docker compose)
+- Schema Postgres được tạo tự động khi BE boot (`migrationsRun: true`); dữ
+  liệu sống trong Docker volume, không còn thư mục `data/` trên host
+- **Không login endpoint cho tenant** — tenant-id từ local storage FE;
+  Google sign-in cho phụ huynh (bảng `tenant_sessions`, docs/04 §3.5) là một
+  cơ chế auth riêng, tách biệt
+- **Không sync cloud** — zero ops cho MVP
 
 ## 9. Security Architecture
 

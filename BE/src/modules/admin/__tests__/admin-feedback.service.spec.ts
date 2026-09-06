@@ -3,19 +3,22 @@ import { AdminFeedbackService } from '../admin-feedback.service';
 import { Feedback } from '../../feedback/entities/feedback.entity';
 import { ChildProfile } from '../../child/entities/child-profile.entity';
 import { Story } from '../../story/entities/story.entity';
-import { StorySection } from '../../story/entities/story-section.entity';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { makeDataSource } from '../../../common/__tests__/test-db';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
-async function seed(core: DataSource, local: DataSource) {
-  await core.getRepository(ChildProfile).save([
+async function seed(ds: DataSource) {
+  // child_profiles.tenant_id and feedbacks.tenant_id are real foreign keys
+  // under Postgres, so the parent tenant row must exist before anything
+  // else is inserted.
+  await ds.getRepository(Tenant).save(Object.assign(new Tenant(), { tenantId: 't1' }));
+  await ds.getRepository(ChildProfile).save([
     Object.assign(new ChildProfile(), { childId: 'c1', tenantId: 't1', childName: 'Bống', age: 4, language: 'vi', isActive: 1 }),
   ]);
-  await local.getRepository(Story).save([
+  await ds.getRepository(Story).save([
     Object.assign(new Story(), { storyId: 's1', tenantId: 't1', title: 'Chú thỏ ngủ quên', content: '[]', theme: 'động vật', language: 'vi', safetyStatus: 'APPROVED', llmCalls: 0, retryCount: 0, isFallback: 0, isSaved: 0 }),
   ]);
   // Six rows across three days, one of them pointing at a story that does not
-  // exist in local.db and has no child.
+  // exist and has no child.
   const rows = [
     { feedbackId: 'f1', storyId: 's1', childId: 'c1', rating: 5, note: 'bé thích lắm',  createdAt: '2026-08-01 08:00:00' },
     { feedbackId: 'f2', storyId: 's1', childId: 'c1', rating: 3, note: null,            createdAt: '2026-08-02 08:00:00' },
@@ -24,26 +27,22 @@ async function seed(core: DataSource, local: DataSource) {
     { feedbackId: 'f5', storyId: 'gone', childId: null, rating: 4, note: 'ổn',          createdAt: '2026-08-04 08:00:00' },
     { feedbackId: 'f6', storyId: 's1', childId: 'c1', rating: 2, note: 'hơi buồn',      createdAt: '2026-08-05 08:00:00' },
   ];
-  await core.getRepository(Feedback).save(
+  await ds.getRepository(Feedback).save(
     rows.map((r) => Object.assign(new Feedback(), { tenantId: 't1', ...r })),
   );
 }
 
 describe('AdminFeedbackService.list', () => {
-  let core: DataSource;
-  let local: DataSource;
+  let ds: DataSource;
   let service: AdminFeedbackService;
 
   beforeEach(async () => {
-    core = makeDataSource([Tenant, ChildProfile, Feedback]);
-    local = makeDataSource([Story, StorySection]);
-    await core.initialize();
-    await local.initialize();
-    await seed(core, local);
-    service = new AdminFeedbackService(core, local);
+    ds = await openTestDataSource();
+    await seed(ds);
+    service = new AdminFeedbackService(ds);
   });
 
-  afterEach(async () => { await core.destroy(); await local.destroy(); });
+  afterEach(async () => { await closeTestDataSource(ds); });
 
   it('returns newest first with total, limit and offset', async () => {
     const page = await service.list({});
@@ -68,9 +67,17 @@ describe('AdminFeedbackService.list', () => {
   });
 
   it('degrades a dangling childId to null child_name without failing', async () => {
-    // f5 has no childId at all. Here a feedback points at a child that existed
-    // when the feedback was written but whose profile has since been deleted.
-    await core.getRepository(ChildProfile).delete({ childId: 'c1' });
+    // f1's childId points at a profile that existed when the feedback was
+    // written but has since been deleted. child_profiles is now a real FK
+    // target of feedbacks.child_id under Postgres (SQLite's fixtures never
+    // enforced it), and nothing in the app actually deletes a child_profiles
+    // row today, so there is no production behavior riding on this. Disable
+    // the referential-integrity trigger for just this delete, in this
+    // throwaway test database, to reproduce the historical orphan the test
+    // is about.
+    await ds.query('ALTER TABLE child_profiles DISABLE TRIGGER ALL');
+    await ds.getRepository(ChildProfile).delete({ childId: 'c1' });
+    await ds.query('ALTER TABLE child_profiles ENABLE TRIGGER ALL');
     const page = await service.list({});
     const f1 = page.items.find((i) => i.feedback_id === 'f1')!;
     expect(f1.child_name).toBeNull();
@@ -124,13 +131,48 @@ describe('AdminFeedbackService.list', () => {
     expect(page).toEqual({ items: [], total: 0, limit: 20, offset: 0 });
   });
 
-  it('degrades to null titles when the local DB query fails', async () => {
-    await local.destroy();
+  it('pages through rows sharing one createdAt second without duplicates or gaps', async () => {
+    // `created_at` is only second-granularity text. Under Postgres (unlike
+    // SQLite, where rowid gave ties a de-facto stable order), an ORDER BY
+    // with no tiebreaker can place tied rows differently between two
+    // executions of the same query — so an admin paging through the list can
+    // see a row twice or miss one whenever two rows share a timestamp
+    // second. Seed a batch that all share one second, inserted out of id
+    // order, then walk every page and confirm each row surfaces exactly once.
+    const tiedRows = Array.from({ length: 12 }, (_, i) => ({
+      feedbackId: `tied-${String(i).padStart(2, '0')}`,
+      storyId: 's1',
+      childId: 'c1',
+      rating: 3,
+      note: null,
+      createdAt: '2026-08-10 10:00:00',
+    })).sort(() => Math.random() - 0.5);
+    await ds.getRepository(Feedback).save(
+      tiedRows.map((r) => Object.assign(new Feedback(), { tenantId: 't1', ...r })),
+    );
+
+    const seen: string[] = [];
+    for (let offset = 0; offset < 18; offset += 5) {
+      const page = await service.list({ limit: 5, offset });
+      seen.push(...page.items.map((i) => i.feedback_id));
+    }
+
+    const tiedSeen = seen.filter((id) => id.startsWith('tied-'));
+    expect(tiedSeen.sort()).toEqual(
+      tiedRows.map((r) => r.feedbackId).sort(),
+    );
+    // No duplicates across page boundaries.
+    expect(new Set(seen).size).toBe(seen.length);
+  });
+
+  it('degrades to null titles when the story lookup fails', async () => {
+    // Story titles are looked up from the same datasource as everything else
+    // now, so there is no separate connection left to sever. Dropping the
+    // table exercises the same defensive path: a broken story lookup must
+    // not fail the whole page.
+    await ds.query('DROP TABLE stories CASCADE');
     const page = await service.list({});
-    // Feedback lives in core.db; a broken local.db must not kill the page.
     expect(page.total).toBe(6);
     expect(page.items.every((i) => i.story_title === null)).toBe(true);
-    local = makeDataSource([Story, StorySection]);
-    await local.initialize();
   });
 });

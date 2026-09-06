@@ -3,8 +3,8 @@ const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
 function parseStoredUtc(value: string | Date): Date {
   if (value instanceof Date) return value;
   const trimmed = value.trim();
-  const sqliteUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(trimmed);
-  return new Date(sqliteUtc ? `${trimmed.replace(' ', 'T')}Z` : trimmed);
+  const plainUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(trimmed);
+  return new Date(plainUtc ? `${trimmed.replace(' ', 'T')}Z` : trimmed);
 }
 
 /** Convert a UTC timestamp into its YYYY-MM-DD calendar date in Vietnam. */

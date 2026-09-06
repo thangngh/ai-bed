@@ -8,9 +8,8 @@ import { EngineGatewayService } from '../../engine-gateway/engine-gateway.servic
 import { ValidationPipe } from '../../../common/pipes/validation.pipe';
 import {
   CORE_TOKEN,
-  LOCAL_TOKEN,
-  openTestDataSources,
-  closeTestDataSources,
+  openTestDataSource,
+  closeTestDataSource,
 } from '../../../common/__tests__/test-db';
 
 // Each test uses a fresh tenant so the token-bucket rate limiter (per-tenant)
@@ -26,19 +25,14 @@ describe('Child Profile Module (integration)', () => {
   let app: INestApplication;
   let module: TestingModule;
   let core: DataSource;
-  let local: DataSource;
 
   beforeAll(async () => {
-    const ds = await openTestDataSources();
-    core = ds.core;
-    local = ds.local;
+    core = await openTestDataSource();
     module = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CORE_TOKEN)
       .useValue(core)
-      .overrideProvider(LOCAL_TOKEN)
-      .useValue(local)
       .overrideProvider(EngineGatewayService)
       .useValue({
         generate: jest.fn().mockResolvedValue({
@@ -62,8 +56,8 @@ describe('Child Profile Module (integration)', () => {
   });
 
   afterAll(async () => {
-    // Manual destroy() — see story.integration.spec.ts for the reason.
-    await closeTestDataSources(core, local);
+    // Manual close() — see story.integration.spec.ts for the reason.
+    await closeTestDataSource(core);
   });
 
   it('POST /child-profile creates a child and returns child_id', async () => {

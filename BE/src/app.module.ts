@@ -63,18 +63,16 @@ import rateLimitConfig from './config/rate-limit.config';
         url: config.get('DATABASE_URL'),
         entities: [Tenant, ChildProfile, Feedback, AdminUser, TenantSession,
           TrafficEvent, TrafficHourly, LlmUsageEvent, LlmUsageHourly,
-          IpRule, IpState, Alert, AdminSetting],
+          IpRule, IpState, Alert, AdminSetting,
+          Story, StorySection, MemoryItem],
+        migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
+        // Replaces the old `create-all-tables.js` boot step: a fresh database
+        // gets the full schema, an existing one is a no-op. Safe because the
+        // stack runs exactly one backend container. Add a Postgres advisory
+        // lock around this before ever running a second replica, or two
+        // instances can race the same migration.
+        migrationsRun: true,
         synchronize: false,
-      }),
-      inject: [ConfigService],
-    }),
-    TypeOrmModule.forRootAsync({
-      name: 'local',
-      useFactory: (config: ConfigService) => ({
-        type: 'sqlite',
-        database: config.get('LOCAL_DB_PATH', 'data/local.db'),
-        entities: [Story, StorySection, MemoryItem],
-        synchronize: config.get('NODE_ENV') === 'development',
       }),
       inject: [ConfigService],
     }),

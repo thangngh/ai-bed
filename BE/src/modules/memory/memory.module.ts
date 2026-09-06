@@ -8,7 +8,7 @@ import memoryConfig from '../../config/memory.config';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MemoryItem], 'local'),
+    TypeOrmModule.forFeature([MemoryItem], 'core'),
     ConfigModule.forFeature(memoryConfig),
   ],
   controllers: [MemoryController],

@@ -31,7 +31,6 @@ export class AdminFeedbackService {
 
   constructor(
     @InjectDataSource('core') private readonly core: DataSource,
-    @InjectDataSource('local') private readonly local: DataSource,
   ) {}
 
   async list(query: ListFeedbackDto): Promise<PaginatedResponse<AdminFeedbackItem>> {
@@ -40,14 +39,20 @@ export class AdminFeedbackService {
 
     const [rows, total] = await this.core.getRepository(Feedback).findAndCount({
       where: this.buildWhere(query),
-      order: { createdAt: 'DESC' },
+      // `createdAt` is only second-granularity text, so rows sharing a second
+      // need a tiebreaker or Postgres may reorder them between pages,
+      // duplicating or skipping rows for an admin paging through the list.
+      order: { createdAt: 'DESC', feedbackId: 'DESC' },
       take: limit,
       skip: offset,
     });
 
-    // core.db and local.db are separate SQLite files, so the story title cannot
-    // be joined in SQL. Two extra lookups scoped to this page keep it at three
-    // queries total, not N+1.
+    // `core` and `local` were separate SQLite files; now that both live on the
+    // single `core` Postgres datasource a join is possible, but rewriting these
+    // lookups into one query is a deferred optimization (see
+    // docs/superpowers/specs/2026-09-03-drop-sqlite-design.md §3), not part of
+    // the datasource collapse. Two extra lookups scoped to this page keep it at
+    // three queries total, not N+1.
     const childNames = await this.lookupChildNames(rows);
     const storyTitles = await this.lookupStoryTitles(rows);
 
@@ -83,7 +88,7 @@ export class AdminFeedbackService {
       where.note = Raw((alias) => `${alias} IS NULL OR ${alias} = ''`);
     }
 
-    // The UI date inputs are Vietnam calendar dates; SQLite stores UTC. Shift
+    // The UI date inputs are Vietnam calendar dates; Postgres stores UTC. Shift
     // both boundaries to UTC before using their sortable timestamp strings.
     if (query.from && query.to) {
       where.createdAt = Raw(
@@ -116,16 +121,20 @@ export class AdminFeedbackService {
     const ids = [...new Set(rows.map((r) => r.storyId).filter((id): id is string => !!id))];
     if (ids.length === 0) return new Map();
     try {
-      const stories = await this.local.getRepository(Story).find({
+      const stories = await this.core.getRepository(Story).find({
         where: { storyId: In(ids) },
         select: ['storyId', 'title'],
       });
       return new Map(stories.map((s) => [s.storyId, s.title]));
-    } catch {
-      // The feedback itself lives in core.db. A broken local.db costs titles,
-      // not the whole page.
+    } catch (err) {
+      // A failed title lookup costs titles on this page, not the whole
+      // response — feedback rows still render without them.
       this.logger.warn(
-        JSON.stringify({ event: 'admin_story_title_lookup_failed', count: ids.length }),
+        JSON.stringify({
+          event: 'admin_story_title_lookup_failed',
+          count: ids.length,
+          error: err instanceof Error ? err.message : String(err),
+        }),
       );
       return new Map();
     }

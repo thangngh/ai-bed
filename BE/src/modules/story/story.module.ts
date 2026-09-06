@@ -12,7 +12,7 @@ import { QueueService } from '../../common/services/queue.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Story, StorySection], 'local'),
+    TypeOrmModule.forFeature([Story, StorySection], 'core'),
     ChildModule,
     MemoryModule,
     EngineGatewayModule,

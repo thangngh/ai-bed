@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, Index } from 'typeorm';
+import { NOW_UTC_TEXT_EXPR } from '../../../../database/now-default-expr';
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
@@ -19,7 +20,7 @@ export class Alert {
   detailJson!: string;
   @Column({ type: 'boolean', default: false })
   resolved!: boolean;
-  @Column({ name: 'created_at', type: 'varchar', length: 25, default: () => "datetime('now')" })
+  @Column({ name: 'created_at', type: 'varchar', length: 25, default: () => NOW_UTC_TEXT_EXPR })
   createdAt!: string;
   @Column({ name: 'resolved_at', type: 'varchar', length: 25, nullable: true })
   resolvedAt!: string | null;

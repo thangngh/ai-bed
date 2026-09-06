@@ -1,4 +1,5 @@
 import { Entity, PrimaryColumn, Column, Index } from 'typeorm';
+import { NOW_UTC_TEXT_EXPR } from '../../../database/now-default-expr';
 
 @Entity('admin_users')
 export class AdminUser {
@@ -13,7 +14,7 @@ export class AdminUser {
   @Column({ name: 'password_hash', type: 'text' })
   passwordHash!: string;
 
-  @Column({ name: 'created_at', type: 'text', default: () => "datetime('now')" })
+  @Column({ name: 'created_at', type: 'text', default: () => NOW_UTC_TEXT_EXPR })
   createdAt?: string;
 
   /** The cheapest audit trail there is: a login nobody made shows up here. */

@@ -10,6 +10,7 @@ import { MemoryService } from '../../memory/memory.service';
 import { EngineGatewayService } from '../../engine-gateway/engine-gateway.service';
 import { QueueService } from '../../../common/services/queue.service';
 import { DashboardService } from '../../admin/dashboard/services/dashboard.service';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 describe('StoryService', () => {
   let service: StoryService;
@@ -18,22 +19,11 @@ describe('StoryService', () => {
   let module: import('@nestjs/testing').TestingModule;
 
   beforeAll(async () => {
+    dataSource = await openTestDataSource();
     module = await Test.createTestingModule({
       providers: [
         StoryService,
-        {
-          provide: getDataSourceToken('local'),
-          useFactory: async () => {
-            const ds = new DataSource({
-              type: 'sqlite',
-              database: ':memory:',
-              entities: [Story, StorySection],
-              synchronize: true,
-            });
-            await ds.initialize();
-            return ds;
-          },
-        },
+        { provide: getDataSourceToken('core'), useValue: dataSource },
         {
           provide: ChildService,
           useValue: { getOrCreate: jest.fn(), findByTenant: jest.fn() },
@@ -65,12 +55,11 @@ describe('StoryService', () => {
     }).compile();
 
     service = module.get(StoryService);
-    dataSource = module.get(getDataSourceToken('local'));
     storyRepo = dataSource.getRepository(Story);
   });
 
   afterAll(async () => {
-    await dataSource.destroy();
+    await closeTestDataSource(dataSource);
   });
 
   it('should find story by id with sections', async () => {
@@ -142,6 +131,8 @@ describe('StoryService', () => {
 
     expect(result).toBeDefined();
     expect(result.title).toBe('Chuyến phiêu lưu');
+  });
+
   it('filters latest stories by child_id when names are duplicated', async () => {
     const saveStory = async (storyId: string, childId: string) => {
       const story = new Story();

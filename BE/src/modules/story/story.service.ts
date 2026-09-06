@@ -22,7 +22,7 @@ export class StoryService {
   private readonly logger = new Logger(StoryService.name);
 
   constructor(
-    @InjectDataSource('local') private dataSource: DataSource,
+    @InjectDataSource('core') private dataSource: DataSource,
     private readonly childService: ChildService,
     private readonly memoryService: MemoryService,
     private readonly engineGateway: EngineGatewayService,
@@ -177,7 +177,10 @@ export class StoryService {
   private async getRecentSummaries(tenantId: string, childId: string) {
     const recent = await this.storyRepo.find({
       where: { tenantId, childId },
-      order: { createdAt: 'DESC' },
+      // `createdAt` is only second-granularity text; break ties on the
+      // primary key so paging/ordering is stable when rows share a second
+      // (Postgres, unlike SQLite's rowid, gives no implicit tiebreaker).
+      order: { createdAt: 'DESC', storyId: 'DESC' },
       take: 3,
     });
     return recent.map(s => ({ title: s.title, theme: s.theme }));
@@ -206,7 +209,7 @@ export class StoryService {
     }
     return this.storyRepo.find({
       where,
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'DESC', storyId: 'DESC' },
       take: limit,
     });
   }
@@ -219,8 +222,8 @@ export class StoryService {
   }
 
   /**
-   * Full story for re-reading. The child's name and age live in the other
-   * datasource, so they are resolved here rather than read off the story row.
+   * Full story for re-reading. The child's name and age live on
+   * `child_profiles`, so they are resolved here rather than read off the story row.
    */
   async getDetail(storyId: string, tenantId: string) {
     const story = await this.findById(storyId, tenantId);

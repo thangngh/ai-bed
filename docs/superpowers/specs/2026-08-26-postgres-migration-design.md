@@ -2,6 +2,13 @@
 
 **Date:** 2026-08-26
 **Status:** Approved (design), pending implementation plan
+
+> **Superseded (2026-09-03):** Phases 0 and 1 shipped. Phases 2, 3, and 4
+> (per-tenant dual-write for the `local` tables, `sync-tenant-to-postgres.ts`,
+> and the deferred cleanup) were **dropped** — the only SQLite data was
+> throwaway dev data, so the parallel-run cutover had nothing to protect.
+> See [2026-09-03-drop-sqlite-design.md](2026-09-03-drop-sqlite-design.md).
+
 **Branch:** `feat/infra-postgres` (off `master`)
 
 ## 1. Context

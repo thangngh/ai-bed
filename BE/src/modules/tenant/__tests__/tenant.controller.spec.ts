@@ -3,22 +3,12 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { Module, Global } from '@nestjs/common';
 import { TenantModule } from '../tenant.module';
-import { CORE_TOKEN, makeDataSource } from '../../../common/__tests__/test-db';
+import { CORE_TOKEN, openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 import { DataSource } from 'typeorm';
-import { Tenant } from '../entities/tenant.entity';
 
 @Global()
 @Module({
-  providers: [
-    {
-      provide: CORE_TOKEN,
-      useFactory: async () => {
-        const ds = makeDataSource([Tenant]);
-        await ds.initialize();
-        return ds;
-      },
-    },
-  ],
+  providers: [{ provide: CORE_TOKEN, useValue: null }],
   exports: [CORE_TOKEN],
 })
 class TestCoreDataSourceModule {}
@@ -28,18 +18,24 @@ describe('TenantController', () => {
   let dataSource: DataSource;
 
   beforeAll(async () => {
+    // Hoisted (rather than a useFactory on the provider) so afterAll has a
+    // handle to close it via closeTestDataSource.
+    dataSource = await openTestDataSource();
+
     const module = await Test.createTestingModule({
       imports: [TenantModule, TestCoreDataSourceModule],
-    }).compile();
+    })
+      .overrideProvider(CORE_TOKEN)
+      .useValue(dataSource)
+      .compile();
 
     app = module.createNestApplication();
     await app.init();
-    dataSource = module.get(CORE_TOKEN);
   });
 
   afterAll(async () => {
     await app.close();
-    await dataSource.destroy();
+    await closeTestDataSource(dataSource);
   });
 
   it('POST /tenant/init should return a tenant_id', async () => {

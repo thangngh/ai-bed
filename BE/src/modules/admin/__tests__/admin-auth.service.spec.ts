@@ -3,7 +3,7 @@ import { AdminUser } from '../entities/admin-user.entity';
 import { AdminAuthService } from '../admin-auth.service';
 import { hashPassword } from '../auth/password';
 import { verifyAdminToken } from '../auth/jwt';
-import { makeDataSource } from '../../../common/__tests__/test-db';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 jest.setTimeout(60_000);
 
@@ -17,8 +17,7 @@ describe('AdminAuthService.login', () => {
   let service: AdminAuthService;
 
   beforeEach(async () => {
-    ds = makeDataSource([AdminUser]);
-    await ds.initialize();
+    ds = await openTestDataSource();
     await ds.getRepository(AdminUser).save(Object.assign(new AdminUser(), {
       adminId: 'admin-1',
       username: 'thang',
@@ -27,7 +26,7 @@ describe('AdminAuthService.login', () => {
     service = new AdminAuthService(ds, configStub);
   });
 
-  afterEach(async () => { await ds.destroy(); });
+  afterEach(async () => { await closeTestDataSource(ds); });
 
   it('returns a verifiable token for the right credentials', async () => {
     const result = await service.login('thang', 'correct-password-1');

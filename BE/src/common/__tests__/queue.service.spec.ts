@@ -40,15 +40,18 @@ describe('QueueService', () => {
   });
 
   it('should have separate queues per tenant', async () => {
-    const start = Date.now();
-
     const results = await Promise.all([
       service.schedule('tenant-a', async () => { await new Promise(r => setTimeout(r, 30)); return 'a'; }),
       service.schedule('tenant-b', async () => { await new Promise(r => setTimeout(r, 30)); return 'b'; }),
     ]);
 
-    const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(150);
     expect(results).toEqual(['a', 'b']);
+    // A wall-clock budget can't prove per-tenant isolation here: this
+    // service is constructed with maxConcurrent: 2, so even a regression
+    // that gave every tenant the same shared limiter would still let both
+    // 30ms tasks run concurrently and finish in ~30ms. The only assertion
+    // that actually detects "one limiter for all tenants" is checking that
+    // each tenant gets a distinct limiter instance.
+    expect(service.getLimiter('tenant-a')).not.toBe(service.getLimiter('tenant-b'));
   });
 });

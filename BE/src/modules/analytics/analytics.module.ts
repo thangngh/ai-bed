@@ -9,9 +9,7 @@ import { ChildModule } from '../child/child.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Story], 'local'),
-    TypeOrmModule.forFeature([Feedback], 'core'),
-    TypeOrmModule.forFeature([MemoryItem], 'local'),
+    TypeOrmModule.forFeature([Story, Feedback, MemoryItem], 'core'),
     ChildModule,
   ],
   controllers: [AnalyticsController],

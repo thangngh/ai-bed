@@ -156,7 +156,9 @@ export class DashboardService {
     if (query.status) where.status = query.status;
     const limit = Math.min(query.limit ?? 50, 200);
     const offset = query.offset ?? 0;
-    const [items, total] = await this.trafficEventRepo.findAndCount({ where, order: { ts: 'DESC' }, take: limit, skip: offset });
+    // `ts` is only second-granularity text; break ties on `id` so paging is
+    // stable even when several rows share a timestamp second (see listAlerts).
+    const [items, total] = await this.trafficEventRepo.findAndCount({ where, order: { ts: 'DESC', id: 'DESC' }, take: limit, skip: offset });
     return { items, total, limit, offset };
   }
 
@@ -570,7 +572,7 @@ export class DashboardService {
         'SUM(e.completionTokens) as completion_tokens',
         'SUM(e.estCostUsd) as est_cost_usd',
         'AVG(e.latencyMs) as avg_latency_ms',
-        'SUM(CASE WHEN e.isFallback = 1 THEN 1 ELSE 0 END) as fallback_calls',
+        'SUM(CASE WHEN e.isFallback THEN 1 ELSE 0 END) as fallback_calls',
       ])
       .where(where)
       .getRawMany();
@@ -622,7 +624,7 @@ export class DashboardService {
     if (query.model) where.model = query.model;
     const limit = Math.min(query.limit ?? 50, 200);
     const offset = query.offset ?? 0;
-    const [items, total] = await this.llmEventRepo.findAndCount({ where, order: { ts: 'DESC' }, take: limit, skip: offset });
+    const [items, total] = await this.llmEventRepo.findAndCount({ where, order: { ts: 'DESC', id: 'DESC' }, take: limit, skip: offset });
     return { items, total, limit, offset };
   }
 

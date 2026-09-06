@@ -1,53 +1,30 @@
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { AnalyticsService } from '../analytics.service';
 import { Story } from '../../story/entities/story.entity';
-import { StorySection } from '../../story/entities/story-section.entity';
 import { Feedback } from '../../feedback/entities/feedback.entity';
 import { MemoryItem } from '../../memory/entities/memory-item.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
+import { ChildProfile } from '../../child/entities/child-profile.entity';
 import { ChildService } from '../../child/child.service';
 import { vietnamDateBoundaryUtc, vietnamDateKey } from '../../../common/time/vietnam-time';
+import { openTestDataSource, closeTestDataSource } from '../../../common/__tests__/test-db';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
-  let localDs: DataSource;
-  let coreDs: DataSource;
+  let dataSource: DataSource;
 
   beforeAll(async () => {
+    dataSource = await openTestDataSource();
     const module = await Test.createTestingModule({
       providers: [
         AnalyticsService,
+        { provide: getDataSourceToken('core'), useValue: dataSource },
         {
-          provide: getDataSourceToken('local'),
-          useFactory: async () => {
-            const ds = new DataSource({
-              type: 'sqlite',
-              database: ':memory:',
-              entities: [Story, StorySection, MemoryItem],
-              synchronize: true,
-            });
-            await ds.initialize();
-            return ds;
-          },
-        },
-        {
-          provide: getDataSourceToken('core'),
-          useFactory: async () => {
-            const ds = new DataSource({
-              type: 'sqlite',
-              database: ':memory:',
-              entities: [Feedback],
-              synchronize: true,
-            });
-            await ds.initialize();
-            return ds;
-          },
-        },
-        {
-          provide: getRepositoryToken(Story, 'local'),
+          provide: getRepositoryToken(Story, 'core'),
           useFactory: (ds: DataSource) => ds.getRepository(Story),
-          inject: [getDataSourceToken('local')],
+          inject: [getDataSourceToken('core')],
         },
         {
           provide: getRepositoryToken(Feedback, 'core'),
@@ -55,9 +32,9 @@ describe('AnalyticsService', () => {
           inject: [getDataSourceToken('core')],
         },
         {
-          provide: getRepositoryToken(MemoryItem, 'local'),
+          provide: getRepositoryToken(MemoryItem, 'core'),
           useFactory: (ds: DataSource) => ds.getRepository(MemoryItem),
-          inject: [getDataSourceToken('local')],
+          inject: [getDataSourceToken('core')],
         },
         {
           provide: ChildService,
@@ -68,13 +45,10 @@ describe('AnalyticsService', () => {
       ],
     }).compile();
     service = module.get(AnalyticsService);
-    localDs = module.get(getDataSourceToken('local'));
-    coreDs = module.get(getDataSourceToken('core'));
   });
 
   afterAll(async () => {
-    await localDs.destroy();
-    await coreDs.destroy();
+    await closeTestDataSource(dataSource);
   });
 
   describe('getStoryStats', () => {
@@ -89,39 +63,41 @@ describe('AnalyticsService', () => {
     });
 
     it('with seeded data', async () => {
-      const now = new Date();
-      await localDs.manager.save(Story, {
+      // Real inserts get 'YYYY-MM-DD HH:MM:SS' (no 'T'/'Z'/millis) from the
+      // migrations' now() default -- match that shape here, not toISOString().
+      const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      await dataSource.manager.save(Story, {
         storyId: 'story-1',
         tenantId: 't1',
         childId: 'c1',
         theme: 'khủng long',
         wordCount: 200,
         isFallback: 0,
-        createdAt: now.toISOString(),
+        createdAt: nowStr,
         title: 'Story 1',
         content: 'Content 1',
         safetyStatus: 'PENDING',
       });
-      await localDs.manager.save(Story, {
+      await dataSource.manager.save(Story, {
         storyId: 'story-2',
         tenantId: 't1',
         childId: 'c1',
         theme: 'công chúa',
         wordCount: 350,
         isFallback: 0,
-        createdAt: now.toISOString(),
+        createdAt: nowStr,
         title: 'Story 2',
         content: 'Content 2',
         safetyStatus: 'PENDING',
       });
-      await localDs.manager.save(Story, {
+      await dataSource.manager.save(Story, {
         storyId: 'story-3',
         tenantId: 't1',
         childId: 'c1',
         theme: 'khủng long',
         wordCount: 150,
         isFallback: 0,
-        createdAt: now.toISOString(),
+        createdAt: nowStr,
         title: 'Story 3',
         content: 'Content 3',
         safetyStatus: 'PENDING',
@@ -144,9 +120,9 @@ describe('AnalyticsService', () => {
       const oneAmVietnam = new Date(vietnamMidnightUtc.getTime() + 60 * 60 * 1000)
         .toISOString()
         .replace('T', ' ')
-        .replace('Z', '');
+        .slice(0, 19);
 
-      await localDs.manager.save(Story, {
+      await dataSource.manager.save(Story, {
         storyId: 'story-vietnam-day',
         tenantId: 't-vietnam-day',
         childId: 'c-vietnam-day',
@@ -173,7 +149,12 @@ describe('AnalyticsService', () => {
     });
 
     it('with seeded data', async () => {
-      await coreDs.manager.save(Feedback, {
+      // feedbacks.tenant_id / feedbacks.child_id carry real FKs on Postgres --
+      // the old SQLite fixture only ever loaded Feedback, so this was never
+      // enforced there. Seed the parent rows these fake ids point at.
+      await dataSource.manager.save(Tenant, { tenantId: 't1' });
+      await dataSource.manager.save(ChildProfile, { childId: 'c1', tenantId: 't1', childName: 'c1', age: 5 });
+      await dataSource.manager.save(Feedback, {
         feedbackId: 'fb-1',
         tenantId: 't1',
         childId: 'c1',
@@ -182,9 +163,9 @@ describe('AnalyticsService', () => {
         listenedComplete: 1,
         wantsMore: 1,
         suitable: 1,
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: '2024-01-01 00:00:00',
       });
-      await coreDs.manager.save(Feedback, {
+      await dataSource.manager.save(Feedback, {
         feedbackId: 'fb-2',
         tenantId: 't1',
         childId: 'c1',
@@ -193,9 +174,9 @@ describe('AnalyticsService', () => {
         listenedComplete: 1,
         wantsMore: 0,
         suitable: 1,
-        createdAt: '2024-01-02T00:00:00Z',
+        createdAt: '2024-01-02 00:00:00',
       });
-      await coreDs.manager.save(Feedback, {
+      await dataSource.manager.save(Feedback, {
         feedbackId: 'fb-3',
         tenantId: 't1',
         childId: 'c1',
@@ -204,7 +185,7 @@ describe('AnalyticsService', () => {
         listenedComplete: 0,
         wantsMore: 0,
         suitable: 0,
-        createdAt: '2024-01-03T00:00:00Z',
+        createdAt: '2024-01-03 00:00:00',
       });
 
       const stats = await service.getFeedbackStats('c1', 't1');
@@ -227,7 +208,7 @@ describe('AnalyticsService', () => {
     });
 
     it('with seeded data', async () => {
-      await localDs.manager.save(MemoryItem, {
+      await dataSource.manager.save(MemoryItem, {
         memoryId: 'mem-1',
         tenantId: 't1',
         childId: 'c1',
@@ -236,9 +217,9 @@ describe('AnalyticsService', () => {
         memoryValue: 'khủng long',
         confidence: 0.9,
         isActive: 1,
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: '2024-01-01 00:00:00',
       });
-      await localDs.manager.save(MemoryItem, {
+      await dataSource.manager.save(MemoryItem, {
         memoryId: 'mem-2',
         tenantId: 't1',
         childId: 'c1',
@@ -247,9 +228,9 @@ describe('AnalyticsService', () => {
         memoryValue: 'khủng long',
         confidence: 0.8,
         isActive: 1,
-        createdAt: '2024-01-02T00:00:00Z',
+        createdAt: '2024-01-02 00:00:00',
       });
-      await localDs.manager.save(MemoryItem, {
+      await dataSource.manager.save(MemoryItem, {
         memoryId: 'mem-3',
         tenantId: 't1',
         childId: 'c1',
@@ -258,7 +239,7 @@ describe('AnalyticsService', () => {
         memoryValue: 'Gấu Pooh',
         confidence: 0.7,
         isActive: 1,
-        createdAt: '2024-01-03T00:00:00Z',
+        createdAt: '2024-01-03 00:00:00',
       });
 
       const stats = await service.getMemoryStats('c1', 't1');

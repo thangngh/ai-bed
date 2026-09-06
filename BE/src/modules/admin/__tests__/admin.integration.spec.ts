@@ -6,14 +6,14 @@ import { AppModule } from '../../../app.module';
 import { AdminUser } from '../entities/admin-user.entity';
 import { hashPassword } from '../auth/password';
 import { Feedback } from '../../feedback/entities/feedback.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { EngineGatewayService } from '../../engine-gateway/engine-gateway.service';
 import { HttpExceptionFilter } from '../../../common/filters/http-exception.filter';
 import { ValidationPipe } from '../../../common/pipes/validation.pipe';
 import {
   CORE_TOKEN,
-  LOCAL_TOKEN,
-  openTestDataSources,
-  closeTestDataSources,
+  openTestDataSource,
+  closeTestDataSource,
 } from '../../../common/__tests__/test-db';
 
 jest.setTimeout(60_000);
@@ -22,18 +22,18 @@ describe('Admin API', () => {
   let app: INestApplication;
   let module: TestingModule;
   let core: DataSource;
-  let local: DataSource;
 
   beforeAll(async () => {
-    const ds = await openTestDataSources();
-    core = ds.core;
-    local = ds.local;
+    core = await openTestDataSource();
 
     await core.getRepository(AdminUser).save(Object.assign(new AdminUser(), {
       adminId: 'admin-1',
       username: 'thang',
       passwordHash: await hashPassword('integration-password-1'),
     }));
+    // feedbacks.tenant_id is a real foreign key under Postgres, so the parent
+    // tenant row must exist before the feedback referencing it does.
+    await core.getRepository(Tenant).save(Object.assign(new Tenant(), { tenantId: 't1' }));
     await core.getRepository(Feedback).save(Object.assign(new Feedback(), {
       feedbackId: 'f1', tenantId: 't1', storyId: 's1', rating: 5, note: 'tuyệt',
       createdAt: '2026-08-01 08:00:00',
@@ -44,8 +44,6 @@ describe('Admin API', () => {
     })
       .overrideProvider(CORE_TOKEN)
       .useValue(core)
-      .overrideProvider(LOCAL_TOKEN)
-      .useValue(local)
       .overrideProvider(EngineGatewayService)
       .useValue({ generate: jest.fn() })
       .compile();
@@ -57,9 +55,9 @@ describe('Admin API', () => {
   });
 
   afterAll(async () => {
-    // Manual destroy() — see story.integration.spec.ts for the reason:
-    // app.close()/module.close() throw for named `forRootAsync` datasources.
-    await closeTestDataSources(core, local);
+    // Manual close() — app.close()/module.close() throw for named
+    // `forRootAsync` datasources.
+    await closeTestDataSource(core);
   });
 
   async function login(): Promise<string> {

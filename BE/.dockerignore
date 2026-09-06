@@ -1,14 +1,9 @@
-# node_modules is rebuilt inside the image. Shipping the host copy would put
-# Windows-built binaries (sqlite3 is native) on top of the Linux ones that
-# `npm ci` just produced, and the container would fail to start.
+# node_modules is rebuilt inside the image. Shipping the host copy would be
+# the wrong platform's dependency tree shadowing the one `npm ci` just
+# produced inside the container, and the container would fail to start.
 node_modules
 dist
 coverage
-
-# Runtime SQLite lives in the be-data volume; baking a developer's database
-# into the image would seed every deployment with their tenants and stories.
-data/*.db
-data/*.db-journal
 
 # Secrets are supplied at run time via compose `env_file` / `environment`.
 .env
